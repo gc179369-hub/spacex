@@ -341,7 +341,7 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
           showToast('Permita pop-ups no navegador para entrar com sua conta Google.', 'error');
         }
       } else if (code === 'auth/unauthorized-domain') {
-        const host = typeof window !== 'undefined' ? window.location.hostname : 'spacex.posts.vercel.app';
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'spacex-posts.vercel.app';
         showToast(
           `Domínio "${host}" ainda não autorizado no Firebase Auth. Adicione-o em Firebase Console > Authentication > Authorized domains.`,
           'error'

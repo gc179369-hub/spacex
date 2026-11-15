@@ -2,7 +2,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
-import { createApiApp } from './server/createApiApp';
+import { createApiApp } from './api/index.ts';
 
 dotenv.config();
 
