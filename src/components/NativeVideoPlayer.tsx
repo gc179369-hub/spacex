@@ -30,6 +30,20 @@ function formatDuration(seconds: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
+function getTimelineDuration(video: HTMLVideoElement): number {
+  let duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+  try {
+    if (video.seekable.length > 0) {
+      const seekableEnd = video.seekable.end(video.seekable.length - 1);
+      if (Number.isFinite(seekableEnd)) duration = Math.max(duration, seekableEnd);
+    }
+  } catch {
+    // Some browsers do not expose seekable ranges until media metadata is ready.
+  }
+  if (Number.isFinite(video.currentTime)) duration = Math.max(duration, video.currentTime);
+  return duration;
+}
+
 export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -51,7 +65,19 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
   useEffect(() => {
     setUseProxyFallback(false);
     setVideoError(null);
+    setDuration(0);
+    setCurrentTime(0);
+    setPlaying(false);
   }, [url]);
+
+  const syncTimelineDuration = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const nextDuration = getTimelineDuration(video);
+    if (nextDuration > 0) {
+      setDuration((previous) => (Math.abs(previous - nextDuration) < 0.1 ? previous : nextDuration));
+    }
+  };
 
   const flashFeedback = (label: string, side: 'left' | 'right' | 'center') => {
     setSeekFeedback({ label, side });
@@ -73,7 +99,7 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
   const seekBy = (deltaSeconds: number) => {
     const video = videoRef.current;
     if (!video) return;
-    const max = Number.isFinite(video.duration) ? video.duration : Infinity;
+    const max = getTimelineDuration(video) || Infinity;
     const next = Math.max(0, Math.min(max, video.currentTime + deltaSeconds));
     video.currentTime = next;
     setCurrentTime(next);
@@ -204,9 +230,19 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
           onPause={() => setPlaying(false)}
           onTimeUpdate={() => {
             if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
+            syncTimelineDuration();
           }}
           onLoadedMetadata={() => {
-            if (videoRef.current) setDuration(videoRef.current.duration || 0);
+            if (videoRef.current) setCurrentTime(videoRef.current.currentTime || 0);
+            syncTimelineDuration();
+          }}
+          onDurationChange={syncTimelineDuration}
+          onLoadedData={syncTimelineDuration}
+          onCanPlay={syncTimelineDuration}
+          onProgress={syncTimelineDuration}
+          onEnded={() => {
+            setPlaying(false);
+            syncTimelineDuration();
           }}
           onError={() => {
             if (!useProxyFallback && activeSrc !== buildMediaProxyUrl(url)) {

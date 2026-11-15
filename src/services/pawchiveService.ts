@@ -110,18 +110,19 @@ export function buildCreatorBannerUrl(service: string, id: string): string {
 
 export function buildDirectFileUrl(file?: PawchiveFile | null): string | null {
   if (!file) return null;
-  if (file.temp_download_url && file.temp_download_url.startsWith('https://')) {
+  if (file.preview_only) return null;
+
+  const expiry = file.temp_expires ? Date.parse(file.temp_expires) : Number.NaN;
+  const temporaryUrlIsFresh = !Number.isFinite(expiry) || expiry > Date.now() + 30_000;
+  if (temporaryUrlIsFresh && file.temp_download_url && file.temp_download_url.startsWith('https://')) {
     return file.temp_download_url;
-  }
-  if (file.temp_url && file.temp_url.startsWith('https://') && !file.temp_url.includes('.m3u8')) {
-    return file.temp_url;
   }
   if (file.path) {
     const cleanPath = file.path.startsWith('/') ? file.path : `/${file.path}`;
     const server = file.server && file.server.startsWith('https://') ? file.server.replace(/\/$/, '') : 'https://n1.pawchive.pw';
     return `${server}/data${cleanPath}`;
   }
-  if (file.temp_url && file.temp_url.startsWith('https://')) {
+  if (temporaryUrlIsFresh && file.temp_url && file.temp_url.startsWith('https://') && !file.temp_url.includes('.m3u8')) {
     return file.temp_url;
   }
   return null;

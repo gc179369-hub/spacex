@@ -102,12 +102,56 @@ function isAllowedPawchiveUrl(rawUrl: string): URL | null {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== 'https:') return null;
     const host = parsed.hostname.toLowerCase();
-    if (host === 'pawchive.pw' || host.endsWith('.pawchive.pw')) {
+    if (host === 'pawchive.pw' || host === 'img.pawchive.pw' || /^(?:n|t)[1-4]\.pawchive\.pw$/.test(host)) {
       return parsed;
     }
     return null;
   } catch {
     return null;
+  }
+}
+
+function matchesKnownFileSignature(fileName: string, bytes: Buffer): boolean | null {
+  const extension = fileName.split('.').pop()?.toLowerCase() || '';
+  const startsWith = (...values: number[]) => values.every((value, index) => bytes[index] === value);
+  switch (extension) {
+    case 'png': return startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a);
+    case 'jpg':
+    case 'jpeg': return startsWith(0xff, 0xd8, 0xff);
+    case 'gif': return bytes.subarray(0, 6).toString('ascii').match(/^GIF8[79]a$/) !== null;
+    case 'webp': return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP';
+    case 'bmp': return bytes.toString('ascii', 0, 2) === 'BM';
+    case 'avif': return bytes.length >= 12 && bytes.toString('ascii', 4, 8) === 'ftyp' && /avif|avis/.test(bytes.toString('ascii', 8, 12));
+    case 'mp4':
+    case 'm4v':
+    case 'mov': return bytes.length >= 8 && bytes.toString('ascii', 4, 8) === 'ftyp';
+    case 'avi': return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'AVI ';
+    case 'flv': return bytes.toString('ascii', 0, 3) === 'FLV';
+    case 'webm':
+    case 'mkv': return startsWith(0x1a, 0x45, 0xdf, 0xa3);
+    case 'zip':
+    case 'apk':
+    case 'aab':
+    case 'xapk':
+    case 'docx':
+    case 'epub': return startsWith(0x50, 0x4b, 0x03, 0x04) || startsWith(0x50, 0x4b, 0x05, 0x06) || startsWith(0x50, 0x4b, 0x07, 0x08);
+    case 'pdf': return bytes.subarray(0, 5).toString('ascii') === '%PDF-';
+    case 'doc': return startsWith(0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1);
+    case 'tif':
+    case 'tiff': return startsWith(0x49, 0x49, 0x2a, 0x00) || startsWith(0x4d, 0x4d, 0x00, 0x2a);
+    case 'psd': return bytes.toString('ascii', 0, 4) === '8BPS';
+    case 'tar': return bytes.length >= 262 && bytes.toString('ascii', 257, 262) === 'ustar';
+    case 'gz': return startsWith(0x1f, 0x8b);
+    case 'bz2': return bytes.toString('ascii', 0, 3) === 'BZh';
+    case 'rtf': return bytes.toString('ascii', 0, 5) === '{\\rtf';
+    case 'wav': return bytes.length >= 12 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WAVE';
+    case 'flac': return bytes.toString('ascii', 0, 4) === 'fLaC';
+    case 'ogg': return bytes.toString('ascii', 0, 4) === 'OggS';
+    case 'mp3':
+    case 'aac': return bytes.toString('ascii', 0, 3) === 'ID3' || (bytes.length > 1 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0);
+    case '7z': return startsWith(0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c);
+    case 'rar': return bytes.toString('ascii', 0, 4) === 'Rar!';
+    default: return null;
   }
 }
 
@@ -123,6 +167,24 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function fetchPawchiveResource(url: string, init: RequestInit = {}, timeoutMs = 20000): Promise<globalThis.Response> {
+  let current = isAllowedPawchiveUrl(url);
+  if (!current) throw new Error('URL de mídia Pawchive não autorizada.');
+
+  for (let redirectCount = 0; redirectCount <= 4; redirectCount += 1) {
+    const response = await fetchWithTimeout(current.toString(), { ...init, redirect: 'manual' }, timeoutMs);
+    if (![301, 302, 303, 307, 308].includes(response.status)) return response;
+    const location = response.headers.get('location');
+    if (!location) return response;
+    const redirected = isAllowedPawchiveUrl(new URL(location, current).toString());
+    await response.body?.cancel().catch(() => {});
+    if (!redirected) throw new Error('O servidor de mídia tentou redirecionar para um domínio não autorizado.');
+    current = redirected;
+  }
+
+  throw new Error('O servidor de mídia excedeu o limite de redirecionamentos.');
 }
 
 async function getCreatorsCatalog(forceRefresh = false): Promise<CreatorsCatalogCache> {
@@ -769,7 +831,7 @@ export function createApiApp() {
         upstreamHeaders.Range = String(req.headers.range);
       }
 
-      const upstream = await fetchWithTimeout(parsed.toString(), { headers: upstreamHeaders }, 30000);
+      const upstream = await fetchPawchiveResource(parsed.toString(), { headers: upstreamHeaders }, 30000);
       if ((!upstream.ok && upstream.status !== 206) || !upstream.body) {
         res.status(upstream.status || 404).end();
         return;
@@ -819,7 +881,7 @@ export function createApiApp() {
     }
 
     try {
-      const head = await fetchWithTimeout(parsed.toString(), { method: 'HEAD' }, 10000);
+      const head = await fetchPawchiveResource(parsed.toString(), { method: 'HEAD' }, 10000);
       const clRaw = head.headers.get('content-length');
       const contentLength = clRaw ? Number.parseInt(clRaw, 10) : null;
       const contentType = head.headers.get('content-type');
@@ -849,30 +911,125 @@ export function createApiApp() {
     }
 
     try {
-      const upstream = await fetchWithTimeout(parsed.toString(), {}, 60000);
-      if (!upstream.ok || !upstream.body) {
-        res.status(upstream.status || 404).json({ error: 'Arquivo indisponível no servidor de origem.' });
+      const candidates = [parsed];
+      const nodeMatch = parsed.hostname.match(/^n([1-4])\.pawchive\.pw$/i);
+      if (nodeMatch && parsed.pathname.startsWith('/data/')) {
+        for (let node = 1; node <= 4; node += 1) {
+          if (node === Number(nodeMatch[1])) continue;
+          const mirror = new URL(parsed);
+          mirror.hostname = `n${node}.pawchive.pw`;
+          candidates.push(mirror);
+        }
+      }
+
+      const mediaExtension = /\.(?:png|jpe?g|webp|gif|bmp|avif|psd|clip|tiff?|mp4|webm|mov|mkv|avi|flv|m4v|mp3|wav|flac|ogg|m4a|aac|apk|aab|xapk|zip|rar|7z|tar|gz|bz2|pdf|doc|docx|epub)$/i.test(requestedName);
+      let selected: {
+        response: globalThis.Response;
+        sourceUrl: URL;
+        reader: ReadableStreamDefaultReader<Uint8Array>;
+        firstChunks: Uint8Array[];
+        firstDone: boolean;
+        contentType: string;
+      } | null = null;
+      let lastStatus = 404;
+      let rejectedHtml = false;
+      let rateLimited = false;
+
+      for (const candidateUrl of candidates) {
+        let upstream: globalThis.Response;
+        try {
+          upstream = await fetchPawchiveResource(candidateUrl.toString(), {
+            headers: {
+              Accept: '*/*',
+              'User-Agent': (req.get('user-agent') || 'Mozilla/5.0 (compatible; SpaceXSite/1.0)').slice(0, 512),
+            },
+          }, 15000);
+        } catch {
+          continue;
+        }
+        if (!upstream.ok || !upstream.body) {
+          if (upstream.status === 429) rateLimited = true;
+          lastStatus = upstream.status || lastStatus;
+          upstream.body?.cancel().catch(() => {});
+          continue;
+        }
+
+        const contentType = (upstream.headers.get('content-type') || 'application/octet-stream').toLowerCase();
+        const reader = upstream.body.getReader();
+        const firstChunks: Uint8Array[] = [];
+        let initialBytes = 0;
+        let firstDone = false;
+        while (initialBytes < 512) {
+          const first = await reader.read();
+          if (first.done) {
+            firstDone = true;
+            break;
+          }
+          if (first.value?.byteLength) {
+            firstChunks.push(first.value);
+            initialBytes += first.value.byteLength;
+          }
+        }
+        const signatureBytes = Buffer.concat(firstChunks.map((chunk) => Buffer.from(chunk)));
+        const prefix = signatureBytes.subarray(0, 512).toString('utf8').replace(/^\uFEFF/, '').trimStart().toLowerCase();
+        const htmlBody = /^(?:<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>])/.test(prefix);
+        const htmlType = contentType.includes('text/html') || contentType.includes('application/xhtml+xml');
+        const textInsteadOfMedia = mediaExtension && (contentType.startsWith('text/') || contentType.includes('application/json'));
+        const validSignature = matchesKnownFileSignature(requestedName, signatureBytes);
+        if (htmlBody || htmlType || textInsteadOfMedia || validSignature === false) {
+          rejectedHtml = true;
+          await reader.cancel().catch(() => {});
+          continue;
+        }
+
+        selected = { response: upstream, sourceUrl: candidateUrl, reader, firstChunks, firstDone, contentType };
+        break;
+      }
+
+      if (!selected) {
+        res.status(rateLimited ? 503 : 502).json({
+          error: rejectedHtml
+            ? 'A origem devolveu HTML ou bytes incompatíveis com a extensão solicitada. Nenhuma resposta de erro foi salva como mídia.'
+            : rateLimited
+              ? 'O servidor de mídia limitou temporariamente os downloads. Aguarde um pouco e tente novamente.'
+              : `Arquivo original indisponível nos servidores de mídia (HTTP ${lastStatus}).`,
+        });
         return;
       }
 
+      const { response: upstream, sourceUrl, reader, firstChunks, firstDone, contentType } = selected;
       const cl = upstream.headers.get('content-length');
       const contentLenNum = cl ? Number.parseInt(cl, 10) : 0;
       if (isVercel && (!cl || contentLenNum > VERCEL_MAX_PROXY_BYTES)) {
-        upstream.body.cancel().catch(() => {});
-        res.redirect(302, parsed.toString());
+        await reader.cancel().catch(() => {});
+        res.redirect(302, sourceUrl.toString());
         return;
       }
 
-      const ct = upstream.headers.get('content-type') || 'application/octet-stream';
-      res.setHeader('Content-Type', ct);
-      if (cl) res.setHeader('Content-Length', cl);
+      const asciiName = requestedName.replace(/[^\x20-\x7E]|["\\;]/g, '_');
       const encodedName = encodeURIComponent(requestedName);
-      res.setHeader('Content-Disposition', `attachment; filename="${requestedName}"; filename*=UTF-8''${encodedName}`);
+      res.status(upstream.status);
+      res.setHeader('Content-Type', contentType);
+      if (cl) res.setHeader('Content-Length', cl);
+      res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`);
 
-      const nodeStream = Readable.fromWeb(upstream.body as unknown as import('node:stream/web').ReadableStream);
+      const nodeStream = Readable.from((async function* () {
+        for (const chunk of firstChunks) {
+          if (chunk.byteLength) yield Buffer.from(chunk);
+        }
+        if (!firstDone) {
+          while (true) {
+            const next = await reader.read();
+            if (next.done) break;
+            if (next.value?.byteLength) yield Buffer.from(next.value);
+          }
+        }
+      })());
+      nodeStream.on('error', () => res.destroy());
       nodeStream.pipe(res);
     } catch {
-      res.status(502).json({ error: 'Falha ao transferir arquivo do servidor.' });
+      if (!res.headersSent) res.status(502).json({ error: 'Falha ao transferir arquivo do servidor.' });
+      else res.destroy();
     }
   });
 

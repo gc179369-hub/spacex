@@ -75,6 +75,7 @@ export interface PawchiveFile {
   temp_download_url?: string;
   temp_expires?: string;
   deferred?: boolean;
+  preview_only?: boolean;
 }
 
 export interface PawchivePostSummary {
