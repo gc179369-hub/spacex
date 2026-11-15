@@ -26,6 +26,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
 } from 'firebase/firestore';
 import {
   auth,
@@ -233,7 +234,11 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
     if (!authReady || !user) return;
 
     const creatorsPath = `users/${user.uid}/favoriteCreators`;
-    const creatorsQuery = query(collection(db, 'users', user.uid, 'favoriteCreators'), orderBy('savedAt', 'desc'));
+    const creatorsQuery = query(
+      collection(db, 'users', user.uid, 'favoriteCreators'),
+      where('uid', '==', user.uid),
+      orderBy('savedAt', 'desc')
+    );
     const unsubCreators = onSnapshot(
       creatorsQuery,
       (snapshot) => {
@@ -258,7 +263,11 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
     );
 
     const postsPath = `users/${user.uid}/favoritePosts`;
-    const postsQuery = query(collection(db, 'users', user.uid, 'favoritePosts'), orderBy('savedAt', 'desc'));
+    const postsQuery = query(
+      collection(db, 'users', user.uid, 'favoritePosts'),
+      where('uid', '==', user.uid),
+      orderBy('savedAt', 'desc')
+    );
     const unsubPosts = onSnapshot(
       postsQuery,
       (snapshot) => {

@@ -81,6 +81,65 @@ function SpaceXShell() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  useEffect(() => {
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const observer = 'IntersectionObserver' in window
+      ? new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (!entry.isIntersecting) return;
+              entry.target.classList.add('motion-blur-visible');
+              observer?.unobserve(entry.target);
+            });
+          },
+          { threshold: 0.08, rootMargin: '0px 0px -7% 0px' }
+        )
+      : null;
+
+    const observeMotionElements = (root: Node) => {
+      if (!(root instanceof Element)) return;
+      const elements: Element[] = [];
+      if (root.matches('.motion-blur-in')) elements.push(root);
+      elements.push(...root.querySelectorAll('.motion-blur-in'));
+      elements.forEach((element) => {
+        const siblings = Array.from(element.parentElement?.children || []).filter((sibling) =>
+          sibling.classList.contains('motion-blur-in')
+        );
+        const index = Math.max(0, siblings.indexOf(element));
+        (element as HTMLElement).style.setProperty('--motion-delay', `${Math.min(index, 5) * 65}ms`);
+
+        if (prefersReducedMotion || !observer) {
+          element.classList.add('motion-blur-visible');
+        } else if (!element.classList.contains('motion-blur-visible')) {
+          observer.observe(element);
+        }
+      });
+    };
+
+    observeMotionElements(document.body);
+    const mutations = new MutationObserver((records) => {
+      records.forEach((record) => record.addedNodes.forEach(observeMotionElements));
+    });
+    mutations.observe(document.body, { childList: true, subtree: true });
+
+    let scrollIdleTimer = 0;
+    const markScrolling = () => {
+      if (prefersReducedMotion) return;
+      document.body.classList.add('is-scrolling');
+      window.clearTimeout(scrollIdleTimer);
+      scrollIdleTimer = window.setTimeout(() => document.body.classList.remove('is-scrolling'), 160);
+    };
+    window.addEventListener('scroll', markScrolling, { passive: true });
+
+    return () => {
+      observer?.disconnect();
+      mutations.disconnect();
+      window.removeEventListener('scroll', markScrolling);
+      window.clearTimeout(scrollIdleTimer);
+      document.body.classList.remove('is-scrolling');
+    };
+  }, []);
+
   const recordSearch = useCallback(
     (term: string) => {
       const clean = term.trim();

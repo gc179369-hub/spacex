@@ -110,7 +110,7 @@ export function PublicationsFeed({
   }, [posts, serviceFilter]);
 
   return (
-    <section className="space-y-6">
+    <section className="motion-blur-in space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="font-display text-2xl sm:text-3xl font-semibold tracking-tight text-white">

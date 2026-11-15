@@ -49,7 +49,7 @@ export function CreatorCard({
           aria-label={isFavorite ? `Remover ${creator.name} dos favoritos` : `Adicionar ${creator.name} aos favoritos`}
           className={`absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full border backdrop-blur-xl transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 ${
             isFavorite
-              ? 'border-rose-400/50 bg-rose-500/30 text-rose-200'
+              ? 'border-red-400/70 bg-red-500/35 text-red-400'
               : 'border-white/15 bg-black/55 text-white hover:bg-black/80'
           }`}
         >
