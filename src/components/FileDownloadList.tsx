@@ -67,23 +67,29 @@ export function FileDownloadList({
 
   const entries = useMemo(() => {
     const raw: PawchiveFile[] = [];
-    if (primaryFile?.path) raw.push(primaryFile);
+    const seenUrls = new Set<string>();
+    const pushFile = (f?: PawchiveFile) => {
+      if (!f) return;
+      const directUrl = buildDirectFileUrl(f);
+      if (!directUrl || seenUrls.has(directUrl)) return;
+      seenUrls.add(directUrl);
+      raw.push(f);
+    };
+    pushFile(primaryFile);
     for (const att of attachments) {
-      if (att?.path && att.path !== primaryFile?.path) {
-        raw.push(att);
-      }
+      pushFile(att);
     }
 
     const list: NormalizedFileEntry[] = [];
     raw.forEach((f, idx) => {
       const directUrl = buildDirectFileUrl(f);
       if (!directUrl) return;
-      const fallbackName = f.path?.split('/').pop() || `arquivo-${idx + 1}`;
+      const fallbackName = f.path?.split('/').pop() || directUrl.split('?')[0].split('/').pop() || `arquivo-${idx + 1}`;
       const name = f.name?.trim() || fallbackName;
       list.push({
         key: `${directUrl}-${idx}`,
         name,
-        filePath: f.path || '',
+        filePath: f.path || directUrl.split('?')[0] || '',
         directUrl,
         downloadUrl: buildDownloadProxyUrl(directUrl, name),
         index: idx,

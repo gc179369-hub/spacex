@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Image as ImageIcon } from 'lucide-react';
+import emblemSurfaceImg from '../assets/images/spacex_emblem_surface_1794747749314.jpg';
 
 interface SmartImageProps {
   src?: string | null;
@@ -34,7 +35,7 @@ export function SmartImage({
       >
         <div
           className="absolute inset-0 opacity-30 bg-cover bg-center"
-          style={{ backgroundImage: 'url(/src/assets/images/spacex_emblem_surface_1794747749314.jpg)' }}
+          style={{ backgroundImage: `url(${emblemSurfaceImg})` }}
         />
         {isAvatar ? (
           <span className="relative z-10 font-display text-sm font-semibold tracking-wider text-white/85">

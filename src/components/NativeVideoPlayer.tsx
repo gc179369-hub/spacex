@@ -43,9 +43,15 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [videoError, setVideoError] = useState<string | null>(null);
+  const [useProxyFallback, setUseProxyFallback] = useState(false);
   const [seekFeedback, setSeekFeedback] = useState<{ label: string; side: 'left' | 'right' | 'center' } | null>(null);
 
-  const proxiedSrc = buildMediaProxyUrl(url);
+  const activeSrc = useProxyFallback ? buildMediaProxyUrl(url) : url;
+
+  useEffect(() => {
+    setUseProxyFallback(false);
+    setVideoError(null);
+  }, [url]);
 
   const flashFeedback = (label: string, side: 'left' | 'right' | 'center') => {
     setSeekFeedback({ label, side });
@@ -190,7 +196,7 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
       <div className="relative aspect-video w-full bg-black">
         <video
           ref={videoRef}
-          src={proxiedSrc}
+          src={activeSrc}
           poster={posterUrl || undefined}
           playsInline
           preload="metadata"
@@ -202,9 +208,13 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
           onLoadedMetadata={() => {
             if (videoRef.current) setDuration(videoRef.current.duration || 0);
           }}
-          onError={() =>
-            setVideoError('Não foi possível reproduzir este formato no navegador. Utilize o botão de download abaixo.')
-          }
+          onError={() => {
+            if (!useProxyFallback && activeSrc !== buildMediaProxyUrl(url)) {
+              setUseProxyFallback(true);
+              return;
+            }
+            setVideoError('Não foi possível reproduzir este formato no navegador. Utilize o botão de download abaixo.');
+          }}
           className="h-full w-full object-contain"
         />
 

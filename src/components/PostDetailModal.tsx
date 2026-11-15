@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type {
   PawchiveComment,
+  PawchiveFile,
   PawchivePostDetail,
   PawchivePostSummary,
   PawchiveRevision,
@@ -126,10 +127,18 @@ export function PostDetailModal({
 
   const allFiles = useMemo(() => {
     if (!activePost) return [];
-    const out = [];
-    if (activePost.file?.path) out.push(activePost.file);
+    const out: PawchiveFile[] = [];
+    const seenKeys = new Set<string>();
+    const addFile = (f?: PawchiveFile) => {
+      if (!f) return;
+      const key = buildDirectFileUrl(f) || f.path || f.temp_url || f.temp_download_url;
+      if (!key || seenKeys.has(key)) return;
+      seenKeys.add(key);
+      out.push(f);
+    };
+    addFile(activePost.file);
     for (const att of activePost.attachments || []) {
-      if (att?.path && att.path !== activePost.file?.path) out.push(att);
+      addFile(att);
     }
     return out;
   }, [activePost]);

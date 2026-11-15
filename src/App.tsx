@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { ArrowUp } from 'lucide-react';
 import { ToastProvider } from './hooks/useToast';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -89,6 +90,13 @@ function SpaceXShell() {
     [setSearchHistory]
   );
 
+  const removeSearchHistoryItem = useCallback(
+    (term: string) => {
+      setSearchHistory((prev) => prev.filter((t) => t !== term));
+    },
+    [setSearchHistory]
+  );
+
   const handleNavigate = (next: NavSection) => {
     setSelectedCreator(null);
     setSection(next);
@@ -109,6 +117,9 @@ function SpaceXShell() {
   };
 
   const favoritesCount = googleUser ? favoriteCreators.length + favoritePosts.length : 0;
+  const activeViewKey = selectedCreator
+    ? `creator-${selectedCreator.service}-${selectedCreator.id}`
+    : `section-${section}`;
 
   return (
     <div className="piano-canvas flex min-h-screen flex-col text-white">
@@ -119,113 +130,136 @@ function SpaceXShell() {
         onOpenImporter={() => setImporterOpen(true)}
         favoritesCount={favoritesCount}
         googleUser={googleUser}
+        searchHistory={searchHistory}
+        onRecordSearch={recordSearch}
+        onRemoveHistoryItem={removeSearchHistoryItem}
+        onClearHistory={() => setSearchHistory([])}
+        onSelectCreator={handleOpenCreator}
+        onSelectPost={(p) => setSelectedPost(p)}
+        onQuickSearch={handleQuickSearch}
       />
 
       <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
-        {selectedCreator ? (
-          <CreatorProfileView
-            service={selectedCreator.service}
-            creatorId={selectedCreator.id}
-            blurThumbnails={preferences.blurSensitiveThumbnails}
-            isCreatorFavorite={isCreatorFavorite}
-            isPostFavorite={isPostFavorite}
-            onToggleCreatorFavorite={toggleCreatorFavorite}
-            onTogglePostFavorite={togglePostFavorite}
-            onOpenCreator={handleOpenCreator}
-            onOpenPost={(p) => setSelectedPost(p)}
-            onBack={() => setSelectedCreator(null)}
-          />
-        ) : (
-          <>
-            {section === 'inicio' && (
-              <HomeView
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={activeViewKey}
+            initial={{ opacity: 0, y: 10, filter: 'blur(6px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -8, filter: 'blur(4px)' }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          >
+            {selectedCreator ? (
+              <CreatorProfileView
+                service={selectedCreator.service}
+                creatorId={selectedCreator.id}
                 blurThumbnails={preferences.blurSensitiveThumbnails}
-                refreshSignal={refreshSignal}
                 isCreatorFavorite={isCreatorFavorite}
                 isPostFavorite={isPostFavorite}
                 onToggleCreatorFavorite={toggleCreatorFavorite}
                 onTogglePostFavorite={togglePostFavorite}
                 onOpenCreator={handleOpenCreator}
                 onOpenPost={(p) => setSelectedPost(p)}
-                onQuickSearch={handleQuickSearch}
-                onNavigate={handleNavigate}
-                onOpenImporter={() => setImporterOpen(true)}
+                onBack={() => setSelectedCreator(null)}
               />
-            )}
+            ) : (
+              <>
+                {section === 'inicio' && (
+                  <HomeView
+                    blurThumbnails={preferences.blurSensitiveThumbnails}
+                    refreshSignal={refreshSignal}
+                    isCreatorFavorite={isCreatorFavorite}
+                    isPostFavorite={isPostFavorite}
+                    onToggleCreatorFavorite={toggleCreatorFavorite}
+                    onTogglePostFavorite={togglePostFavorite}
+                    onOpenCreator={handleOpenCreator}
+                    onOpenPost={(p) => setSelectedPost(p)}
+                    onQuickSearch={handleQuickSearch}
+                    onNavigate={handleNavigate}
+                    onOpenImporter={() => setImporterOpen(true)}
+                  />
+                )}
 
-            {section === 'explorar' && (
-              <ExploreView
-                key={exploreInit.key}
-                initialQuery={exploreInit.query}
-                initialMode={exploreInit.mode}
-                blurThumbnails={preferences.blurSensitiveThumbnails}
-                searchHistory={searchHistory}
-                onRecordSearch={recordSearch}
-                onClearHistory={() => setSearchHistory([])}
-                isCreatorFavorite={isCreatorFavorite}
-                isPostFavorite={isPostFavorite}
-                onToggleCreatorFavorite={toggleCreatorFavorite}
-                onTogglePostFavorite={togglePostFavorite}
-                onOpenCreator={handleOpenCreator}
-                onOpenPost={(p) => setSelectedPost(p)}
-              />
-            )}
+                {section === 'explorar' && (
+                  <ExploreView
+                    key={exploreInit.key}
+                    initialQuery={exploreInit.query}
+                    initialMode={exploreInit.mode}
+                    blurThumbnails={preferences.blurSensitiveThumbnails}
+                    searchHistory={searchHistory}
+                    onRecordSearch={recordSearch}
+                    onClearHistory={() => setSearchHistory([])}
+                    isCreatorFavorite={isCreatorFavorite}
+                    isPostFavorite={isPostFavorite}
+                    onToggleCreatorFavorite={toggleCreatorFavorite}
+                    onTogglePostFavorite={togglePostFavorite}
+                    onOpenCreator={handleOpenCreator}
+                    onOpenPost={(p) => setSelectedPost(p)}
+                  />
+                )}
 
-            {section === 'criadores' && (
-              <CreatorsDirectory
-                key={refreshSignal}
-                defaultSort={preferences.defaultCreatorSort}
-                defaultPageSize={preferences.defaultPageSize}
-                isFavorite={isCreatorFavorite}
-                onToggleFavorite={toggleCreatorFavorite}
-                onOpenProfile={handleOpenCreator}
-                onRecordSearch={recordSearch}
-              />
-            )}
+                {section === 'criadores' && (
+                  <CreatorsDirectory
+                    key={refreshSignal}
+                    defaultSort={preferences.defaultCreatorSort}
+                    defaultPageSize={preferences.defaultPageSize}
+                    isFavorite={isCreatorFavorite}
+                    onToggleFavorite={toggleCreatorFavorite}
+                    onOpenProfile={handleOpenCreator}
+                    onRecordSearch={recordSearch}
+                  />
+                )}
 
-            {section === 'publicacoes' && (
-              <PublicationsFeed
-                key={refreshSignal}
-                blurThumbnails={preferences.blurSensitiveThumbnails}
-                isPostFavorite={isPostFavorite}
-                onTogglePostFavorite={togglePostFavorite}
-                onOpenPost={(p) => setSelectedPost(p)}
-                onOpenCreator={handleOpenCreator}
-                onRecordSearch={recordSearch}
-              />
-            )}
+                {section === 'publicacoes' && (
+                  <PublicationsFeed
+                    key={refreshSignal}
+                    blurThumbnails={preferences.blurSensitiveThumbnails}
+                    isPostFavorite={isPostFavorite}
+                    onTogglePostFavorite={togglePostFavorite}
+                    onOpenPost={(p) => setSelectedPost(p)}
+                    onOpenCreator={handleOpenCreator}
+                    onRecordSearch={recordSearch}
+                  />
+                )}
 
-            {section === 'favoritos' && (
-              <FavoritesView
-                favoriteCreators={favoriteCreators}
-                favoritePosts={favoritePosts}
-                blurThumbnails={preferences.blurSensitiveThumbnails}
-                googleUser={googleUser}
-                authReady={authReady}
-                signingIn={signingIn}
-                onLoginWithGoogle={signInWithGoogle}
-                onLogoutGoogle={logoutGoogle}
-                onToggleCreatorFavorite={toggleCreatorFavorite}
-                onTogglePostFavorite={togglePostFavorite}
-                onOpenCreator={handleOpenCreator}
-                onOpenPost={(p) => setSelectedPost(p)}
-                onGoExplore={() => handleNavigate('explorar')}
-              />
+                {section === 'favoritos' && (
+                  <FavoritesView
+                    favoriteCreators={favoriteCreators}
+                    favoritePosts={favoritePosts}
+                    blurThumbnails={preferences.blurSensitiveThumbnails}
+                    googleUser={googleUser}
+                    authReady={authReady}
+                    signingIn={signingIn}
+                    onLoginWithGoogle={signInWithGoogle}
+                    onLogoutGoogle={logoutGoogle}
+                    onToggleCreatorFavorite={toggleCreatorFavorite}
+                    onTogglePostFavorite={togglePostFavorite}
+                    onOpenCreator={handleOpenCreator}
+                    onOpenPost={(p) => setSelectedPost(p)}
+                    onGoExplore={() => handleNavigate('explorar')}
+                  />
+                )}
+              </>
             )}
-          </>
-        )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
-      {showScrollTop && (
-        <button
-          type="button"
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          aria-label="Voltar ao topo"
-          className="liquid-glass fixed bottom-5 left-5 z-40 inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-transform hover:scale-105"
-        >
-          <ArrowUp className="h-4 w-4" />
-        </button>
-      )}
+      <AnimatePresence>
+        {showScrollTop && (
+          <motion.button
+            type="button"
+            initial={{ opacity: 0, scale: 0.85 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.85 }}
+            transition={{ duration: 0.16 }}
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            aria-label="Voltar ao topo"
+            className="liquid-glass fixed bottom-5 left-5 z-40 inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-transform hover:scale-105"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       <footer className="border-t border-white/[0.08] bg-black/85">
         <div className="mx-auto flex max-w-[1440px] flex-col gap-3 px-4 py-6 text-xs text-slate-300 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
@@ -286,10 +320,12 @@ function SpaceXShell() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <FirebaseAuthProvider>
-        <SpaceXShell />
-      </FirebaseAuthProvider>
-    </ToastProvider>
+    <MotionConfig reducedMotion="user">
+      <ToastProvider>
+        <FirebaseAuthProvider>
+          <SpaceXShell />
+        </FirebaseAuthProvider>
+      </ToastProvider>
+    </MotionConfig>
   );
 }

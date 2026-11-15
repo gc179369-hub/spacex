@@ -109,14 +109,30 @@ export function buildCreatorBannerUrl(service: string, id: string): string {
 }
 
 export function buildDirectFileUrl(file?: PawchiveFile | null): string | null {
-  if (!file?.path) return null;
-  const cleanPath = file.path.startsWith('/') ? file.path : `/${file.path}`;
-  const server = file.server && file.server.startsWith('https://') ? file.server.replace(/\/$/, '') : 'https://n1.pawchive.pw';
-  return `${server}/data${cleanPath}`;
+  if (!file) return null;
+  if (file.temp_download_url && file.temp_download_url.startsWith('https://')) {
+    return file.temp_download_url;
+  }
+  if (file.temp_url && file.temp_url.startsWith('https://') && !file.temp_url.includes('.m3u8')) {
+    return file.temp_url;
+  }
+  if (file.path) {
+    const cleanPath = file.path.startsWith('/') ? file.path : `/${file.path}`;
+    const server = file.server && file.server.startsWith('https://') ? file.server.replace(/\/$/, '') : 'https://n1.pawchive.pw';
+    return `${server}/data${cleanPath}`;
+  }
+  if (file.temp_url && file.temp_url.startsWith('https://')) {
+    return file.temp_url;
+  }
+  return null;
 }
 
 export function buildThumbnailUrl(file?: PawchiveFile | null): string | null {
-  if (!file?.path) return null;
+  if (!file) return null;
+  if (file.temp_url && file.temp_url.startsWith('https://') && !file.temp_url.includes('.m3u8')) {
+    return buildMediaProxyUrl(file.temp_url);
+  }
+  if (!file.path) return null;
   const cleanPath = file.path.startsWith('/') ? file.path : `/${file.path}`;
   const ext = (file.name || cleanPath).split('.').pop()?.toLowerCase() || '';
   const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'];
@@ -293,20 +309,30 @@ export function parsePostTags(tags: string | string[] | undefined | null): strin
     .filter(Boolean);
 }
 
+function extractCleanExt(raw: string | undefined | null): string {
+  if (!raw) return '';
+  const noQuery = raw.split('?')[0].split('#')[0];
+  return noQuery.split('.').pop()?.toLowerCase() || '';
+}
+
 export function isVideoFile(file?: PawchiveFile | null): boolean {
-  if (!file?.path && !file?.name) return false;
+  if (!file) return false;
   const exts = ['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'];
-  const nameExt = (file.name || '').split('.').pop()?.toLowerCase() || '';
-  const pathExt = (file.path || '').split('.').pop()?.toLowerCase() || '';
-  return exts.includes(nameExt) || exts.includes(pathExt);
+  return (
+    exts.includes(extractCleanExt(file.name)) ||
+    exts.includes(extractCleanExt(file.path)) ||
+    exts.includes(extractCleanExt(file.temp_download_url))
+  );
 }
 
 export function isImageFile(file?: PawchiveFile | null): boolean {
-  if (!file?.path && !file?.name) return false;
+  if (!file) return false;
   const exts = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'avif'];
-  const nameExt = (file.name || '').split('.').pop()?.toLowerCase() || '';
-  const pathExt = (file.path || '').split('.').pop()?.toLowerCase() || '';
-  return exts.includes(nameExt) || exts.includes(pathExt);
+  return (
+    exts.includes(extractCleanExt(file.name)) ||
+    exts.includes(extractCleanExt(file.path)) ||
+    exts.includes(extractCleanExt(file.temp_url))
+  );
 }
 
 // API Service Methods

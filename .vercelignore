@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+*.zip
+*.log
+.env
+.env.local
+.env.*.local
+eslint.config.mjs
+security_spec.md

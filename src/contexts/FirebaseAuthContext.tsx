@@ -8,8 +8,10 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  getRedirectResult,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User,
 } from 'firebase/auth';
@@ -198,8 +200,16 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  // Listen to Firebase Auth state
+  // Listen to Firebase Auth state & handle redirect fallback result if popup was blocked
   useEffect(() => {
+    getRedirectResult(auth)
+      .then((res) => {
+        if (res?.user) {
+          showToast(`Bem-vindo(a), ${res.user.displayName || res.user.email}!`, 'success');
+        }
+      })
+      .catch(() => {});
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       setAuthReady(true);
@@ -216,7 +226,7 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       }
     });
     return () => unsubscribe();
-  }, [ensureUserProfile]);
+  }, [ensureUserProfile, showToast]);
 
   // Real-time Firestore sync ONLY when authenticated
   useEffect(() => {
@@ -323,7 +333,20 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (err) {
       const code = typeof err === 'object' && err !== null && 'code' in err ? String((err as { code: unknown }).code) : '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+      if (code === 'auth/popup-blocked') {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        } catch {
+          showToast('Permita pop-ups no navegador para entrar com sua conta Google.', 'error');
+        }
+      } else if (code === 'auth/unauthorized-domain') {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'spacex.posts.vercel.app';
+        showToast(
+          `Domínio "${host}" ainda não autorizado no Firebase Auth. Adicione-o em Firebase Console > Authentication > Authorized domains.`,
+          'error'
+        );
+      } else if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         showToast('Login com Google cancelado.', 'info');
       } else {
         showToast(err instanceof Error ? err.message : 'Erro ao entrar com Google.', 'error');

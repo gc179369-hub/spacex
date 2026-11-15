@@ -22,6 +22,7 @@ import { PostCard } from './PostCard';
 import { SmartImage } from './SmartImage';
 import { SmartSearchBar } from './SmartSearchBar';
 import { InfiniteScrollSentinel } from './InfiniteScrollSentinel';
+import heroObsidianBg from '../assets/images/spacex_obsidian_glass_hero_1794747747406.jpg';
 
 interface HomeViewProps {
   blurThumbnails: boolean;
@@ -188,14 +189,14 @@ export function HomeView({
         <div className="relative min-h-[340px] sm:min-h-[410px] w-full">
           {spotlightPost ? (
             <SmartImage
-              src={buildThumbnailUrl(spotlightPost.file) || '/src/assets/images/spacex_obsidian_glass_hero_1794747747406.jpg'}
+              src={buildThumbnailUrl(spotlightPost.file) || heroObsidianBg}
               alt={spotlightPost.title || 'Destaque SpaceX'}
               blur={blurThumbnails}
               className="absolute inset-0 h-full w-full"
             />
           ) : (
             <img
-              src="/src/assets/images/spacex_obsidian_glass_hero_1794747747406.jpg"
+              src={heroObsidianBg}
               alt="SpaceX Black Piano"
               className="absolute inset-0 h-full w-full object-cover"
             />

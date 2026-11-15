@@ -29,6 +29,7 @@ import {
 import { SmartImage } from './SmartImage';
 import { PostCard } from './PostCard';
 import { InfiniteScrollSentinel } from './InfiniteScrollSentinel';
+import { CreatorStatsPanel } from './CreatorStatsPanel';
 
 interface CreatorProfileViewProps {
   service: string;
@@ -57,6 +58,7 @@ export function CreatorProfileView({
 }: CreatorProfileViewProps) {
   const [profile, setProfile] = useState<PawchiveCreatorProfile | null>(null);
   const [posts, setPosts] = useState<PawchivePostSummary[]>([]);
+  const [statsPosts, setStatsPosts] = useState<PawchivePostSummary[]>([]);
   const [tags, setTags] = useState<PawchiveTag[]>([]);
   const [links, setLinks] = useState<PawchiveCreatorProfile[]>([]);
   const [announcements, setAnnouncements] = useState<PawchiveAnnouncement[]>([]);
@@ -85,6 +87,7 @@ export function CreatorProfileView({
     let active = true;
     setLoadingProfile(true);
     setError(null);
+    setStatsPosts([]);
     setTab('publicacoes');
     setSearchQuery('');
     setDebouncedQuery('');
@@ -133,6 +136,9 @@ export function CreatorProfileView({
         if (!active) return;
         const list = Array.isArray(res) ? res : [];
         setPosts(list);
+        if (!debouncedQuery && !selectedTag) {
+          setStatsPosts(list);
+        }
         setHasMore(list.length >= 50);
       })
       .catch((err) => {
@@ -166,7 +172,11 @@ export function CreatorProfileView({
         setPosts((prev) => {
           const seen = new Set(prev.map((p) => `${p.service}:${p.user}:${p.id}`));
           const added = list.filter((p) => !seen.has(`${p.service}:${p.user}:${p.id}`));
-          return [...prev, ...added];
+          const merged = [...prev, ...added];
+          if (!debouncedQuery && !selectedTag) {
+            setStatsPosts(merged);
+          }
+          return merged;
         });
         setOffset(nextOffset);
         setHasMore(list.length >= 50);
@@ -323,6 +333,13 @@ export function CreatorProfileView({
           )}
         </div>
       </div>
+
+      {/* Recharts Statistics Panel */}
+      <CreatorStatsPanel
+        posts={statsPosts}
+        tags={tags}
+        loading={loadingPosts && statsPosts.length === 0}
+      />
 
       {/* Tabs & Search */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
