@@ -2,6 +2,7 @@ import express, { type Request, type Response } from 'express';
 import crypto from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
+import { pawchiveDownloadGate } from './downloadGate.js';
 
 const PAWCHIVE_BASE = 'https://pawchive.pw';
 const PAWCHIVE_API = `${PAWCHIVE_BASE}/api/v1`;
@@ -169,11 +170,17 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   }
 }
 
-async function fetchPawchiveResource(url: string, init: RequestInit = {}, timeoutMs = 20000): Promise<globalThis.Response> {
+async function fetchPawchiveResource(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = 20000,
+  beforeRequest?: () => Promise<void>
+): Promise<globalThis.Response> {
   let current = isAllowedPawchiveUrl(url);
   if (!current) throw new Error('URL de mídia Pawchive não autorizada.');
 
   for (let redirectCount = 0; redirectCount <= 4; redirectCount += 1) {
+    if (beforeRequest) await beforeRequest();
     const response = await fetchWithTimeout(current.toString(), { ...init, redirect: 'manual' }, timeoutMs);
     if (![301, 302, 303, 307, 308].includes(response.status)) return response;
     const location = response.headers.get('location');
@@ -825,14 +832,34 @@ export function createApiApp() {
       return;
     }
 
+    const isThumbnailCdnRequest = parsed.hostname === 'img.pawchive.pw' && parsed.pathname.startsWith('/thumbnail/');
+    let releaseTransfer: (() => void) | null = null;
+    let streaming = false;
     try {
-      const upstreamHeaders: Record<string, string> = {};
+      if (!isThumbnailCdnRequest) releaseTransfer = await pawchiveDownloadGate.acquireTransfer();
+      const auth = getSessionFromReq(req);
+      const upstreamHeaders: Record<string, string> = {
+        Accept: '*/*',
+        'User-Agent': 'SpaceX-Platform/1.0 (+https://spacex-posts.vercel.app)',
+        Referer: 'https://pawchive.pw/',
+        Origin: 'https://pawchive.pw',
+      };
+      if (auth?.session.pawchiveCookie) upstreamHeaders.Cookie = auth.session.pawchiveCookie;
       if (req.headers.range) {
         upstreamHeaders.Range = String(req.headers.range);
       }
+      if (req.headers['if-range']) {
+        upstreamHeaders['If-Range'] = String(req.headers['if-range']);
+      }
 
-      const upstream = await fetchPawchiveResource(parsed.toString(), { headers: upstreamHeaders }, 30000);
+      const upstream = await fetchPawchiveResource(
+        parsed.toString(),
+        { headers: upstreamHeaders },
+        30000,
+        isThumbnailCdnRequest ? undefined : () => pawchiveDownloadGate.waitForRequestTurn()
+      );
       if ((!upstream.ok && upstream.status !== 206) || !upstream.body) {
+        await upstream.body?.cancel().catch(() => {});
         res.status(upstream.status || 404).end();
         return;
       }
@@ -856,12 +883,25 @@ export function createApiApp() {
       res.setHeader('Cache-Control', 'public, max-age=86400');
 
       const nodeStream = Readable.fromWeb(upstream.body as unknown as import('node:stream/web').ReadableStream);
-      req.on('close', () => {
-        nodeStream.destroy();
+      const releaseOnce = () => {
+        releaseTransfer?.();
+        releaseTransfer = null;
+      };
+      nodeStream.once('end', releaseOnce);
+      nodeStream.once('close', releaseOnce);
+      nodeStream.once('error', () => {
+        releaseOnce();
+        res.destroy();
       });
+      res.once('close', () => {
+        if (!res.writableEnded) nodeStream.destroy();
+      });
+      streaming = true;
       nodeStream.pipe(res);
     } catch {
       if (!res.headersSent) res.status(502).end();
+    } finally {
+      if (!streaming) releaseTransfer?.();
     }
   });
 
@@ -880,8 +920,15 @@ export function createApiApp() {
       return;
     }
 
+    let releaseTransfer: (() => void) | null = null;
     try {
-      const head = await fetchPawchiveResource(parsed.toString(), { method: 'HEAD' }, 10000);
+      releaseTransfer = await pawchiveDownloadGate.acquireTransfer();
+      const head = await fetchPawchiveResource(
+        parsed.toString(),
+        { method: 'HEAD', headers: { Referer: 'https://pawchive.pw/', Origin: 'https://pawchive.pw' } },
+        10000,
+        () => pawchiveDownloadGate.waitForRequestTurn()
+      );
       const clRaw = head.headers.get('content-length');
       const contentLength = clRaw ? Number.parseInt(clRaw, 10) : null;
       const contentType = head.headers.get('content-type');
@@ -897,32 +944,67 @@ export function createApiApp() {
       });
     } catch {
       res.json({ ok: false, contentLength: null, contentType: null });
+    } finally {
+      releaseTransfer?.();
     }
   });
 
-  // SSRF-Protected Individual File Download Streamer (redirects >4MB on Vercel)
+  // SSRF-protected streamer. Pawchive allows at most one new request per second
+  // and five active downloads; acquire the slot before contacting file servers.
   app.get('/api/download', async (req, res) => {
     const rawUrl = String(req.query.url || '');
-    const requestedName = String(req.query.filename || 'spacex-download').replace(/[\r\n"/\\]/g, '_');
-    const parsed = isAllowedPawchiveUrl(rawUrl);
-    if (!parsed) {
+    const requestedName = String(req.query.filename || 'spacex-download')
+      .replace(/[\r\n"/\\]/g, '_')
+      .slice(0, 255);
+    const primarySource = isAllowedPawchiveUrl(rawUrl);
+    if (!primarySource) {
       res.status(400).json({ error: 'URL de download não autorizada.' });
       return;
     }
 
-    try {
-      const candidates = [parsed];
-      const nodeMatch = parsed.hostname.match(/^n([1-4])\.pawchive\.pw$/i);
-      if (nodeMatch && parsed.pathname.startsWith('/data/')) {
+    const rawCandidates = req.query.candidate;
+    const candidateValues = Array.isArray(rawCandidates)
+      ? rawCandidates.filter((value): value is string => typeof value === 'string')
+      : typeof rawCandidates === 'string'
+        ? [rawCandidates]
+        : [];
+    const sourceUrls = [primarySource];
+    for (const value of candidateValues.slice(0, 5)) {
+      const candidate = isAllowedPawchiveUrl(value);
+      if (candidate && !sourceUrls.some((source) => source.toString() === candidate.toString())) {
+        sourceUrls.push(candidate);
+      }
+    }
+
+    const candidates: URL[] = [];
+    const seenCandidates = new Set<string>();
+    const addCandidate = (candidate: URL) => {
+      const key = candidate.toString();
+      if (!seenCandidates.has(key)) {
+        seenCandidates.add(key);
+        candidates.push(candidate);
+      }
+    };
+    for (const source of sourceUrls) {
+      addCandidate(source);
+      const nodeMatch = source.hostname.match(/^n([1-4])\.pawchive\.pw$/i);
+      if (nodeMatch && source.pathname.startsWith('/data/')) {
         for (let node = 1; node <= 4; node += 1) {
-          if (node === Number(nodeMatch[1])) continue;
-          const mirror = new URL(parsed);
+          const mirror = new URL(source);
           mirror.hostname = `n${node}.pawchive.pw`;
-          candidates.push(mirror);
+          addCandidate(mirror);
         }
       }
+    }
 
-      const mediaExtension = /\.(?:png|jpe?g|webp|gif|bmp|avif|psd|clip|tiff?|mp4|webm|mov|mkv|avi|flv|m4v|mp3|wav|flac|ogg|m4a|aac|apk|aab|xapk|zip|rar|7z|tar|gz|bz2|pdf|doc|docx|epub)$/i.test(requestedName);
+    const mediaExtension = /\.(?:png|jpe?g|webp|gif|bmp|avif|psd|clip|tiff?|mp4|webm|mov|mkv|avi|flv|m4v|mp3|wav|flac|ogg|m4a|aac|apk|aab|xapk|zip|rar|7z|tar|gz|bz2|pdf|doc|docx|epub)$/i.test(requestedName);
+    let releaseTransfer: (() => void) | null = null;
+    let streaming = false;
+
+    try {
+      releaseTransfer = await pawchiveDownloadGate.acquireTransfer();
+      if (res.destroyed) return;
+
       let selected: {
         response: globalThis.Response;
         sourceUrl: URL;
@@ -932,25 +1014,52 @@ export function createApiApp() {
         contentType: string;
       } | null = null;
       let lastStatus = 404;
-      let rejectedHtml = false;
+      let rejectedPayload = false;
       let rateLimited = false;
 
       for (const candidateUrl of candidates) {
         let upstream: globalThis.Response;
         try {
-          upstream = await fetchPawchiveResource(candidateUrl.toString(), {
-            headers: {
-              Accept: '*/*',
-              'User-Agent': (req.get('user-agent') || 'Mozilla/5.0 (compatible; SpaceXSite/1.0)').slice(0, 512),
-            },
-          }, 15000);
+          const headers: Record<string, string> = {
+            Accept: '*/*',
+            'User-Agent': 'SpaceX-Platform/1.0 (+https://spacex-posts.vercel.app)',
+            Referer: 'https://pawchive.pw/',
+            Origin: 'https://pawchive.pw',
+          };
+          const auth = getSessionFromReq(req);
+          if (auth?.session.pawchiveCookie) headers.Cookie = auth.session.pawchiveCookie;
+          upstream = await fetchPawchiveResource(
+            candidateUrl.toString(),
+            { headers },
+            15000,
+            () => pawchiveDownloadGate.waitForRequestTurn()
+          );
         } catch {
+          lastStatus = 502;
           continue;
         }
+
         if (!upstream.ok || !upstream.body) {
-          if (upstream.status === 429) rateLimited = true;
           lastStatus = upstream.status || lastStatus;
-          upstream.body?.cancel().catch(() => {});
+          if (upstream.status === 429) {
+            rateLimited = true;
+            await upstream.body?.cancel().catch(() => {});
+            break;
+          }
+          if (upstream.status === 403 && upstream.body) {
+            const errorReader = upstream.body.getReader();
+            const errorChunk = await errorReader.read().catch(() => ({ done: true, value: undefined }));
+            const sourceMessage = errorChunk.value
+              ? Buffer.from(errorChunk.value).toString('utf8')
+              : '';
+            await errorReader.cancel().catch(() => {});
+            if (/are you a bot|request per second|active downloads|rate.?limit/i.test(sourceMessage)) {
+              rateLimited = true;
+              break;
+            }
+          } else {
+            await upstream.body?.cancel().catch(() => {});
+          }
           continue;
         }
 
@@ -972,12 +1081,23 @@ export function createApiApp() {
         }
         const signatureBytes = Buffer.concat(firstChunks.map((chunk) => Buffer.from(chunk)));
         const prefix = signatureBytes.subarray(0, 512).toString('utf8').replace(/^\uFEFF/, '').trimStart().toLowerCase();
+        const extension = requestedName.toLowerCase().match(/\.([a-z0-9]{1,16})$/)?.[1] || '';
+        const htmlFile = extension === 'html' || extension === 'htm';
+        const jsonFile = extension === 'json' || extension === 'jsonl' || extension === 'ndjson';
+        const knownTextFile = /\.(?:txt|md|csv|rtf|json|jsonl|ndjson|xml|yaml|yml|srt|vtt|log|html|htm|ini|cfg|conf|css|js|ts|sql|sh|bat)$/i.test(requestedName);
         const htmlBody = /^(?:<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>])/.test(prefix);
-        const htmlType = contentType.includes('text/html') || contentType.includes('application/xhtml+xml');
-        const textInsteadOfMedia = mediaExtension && (contentType.startsWith('text/') || contentType.includes('application/json'));
+        const htmlType = contentType.includes('text/html') || contentType.includes('application/xhtml+xml') || htmlBody;
+        const textType = contentType.startsWith('text/') || contentType.includes('application/json') || contentType.includes('application/xml') || contentType.includes('+xml');
+        const jsonBody = /^[\[{]/.test(prefix);
+        const jsonPayload = contentType.includes('json') || (jsonBody && !knownTextFile);
+        const looksLikeError = /(?:404\s+(?:not found|error)|403\s+forbidden|not found|forbidden|unauthorized|access denied|are you a bot|checking your browser|too many requests|rate.?limit)/i.test(prefix);
+        const invalidHtml = htmlType && (!htmlFile || looksLikeError);
+        const unexpectedText = textType && !knownTextFile;
+        const mismatchedJson = jsonPayload && !jsonFile;
+        const errorText = looksLikeError;
         const validSignature = matchesKnownFileSignature(requestedName, signatureBytes);
-        if (htmlBody || htmlType || textInsteadOfMedia || validSignature === false) {
-          rejectedHtml = true;
+        if (invalidHtml || unexpectedText || mismatchedJson || errorText || validSignature === false || (mediaExtension && textType)) {
+          rejectedPayload = true;
           await reader.cancel().catch(() => {});
           continue;
         }
@@ -988,10 +1108,10 @@ export function createApiApp() {
 
       if (!selected) {
         res.status(rateLimited ? 503 : 502).json({
-          error: rejectedHtml
-            ? 'A origem devolveu HTML ou bytes incompatíveis com a extensão solicitada. Nenhuma resposta de erro foi salva como mídia.'
+          error: rejectedPayload
+            ? 'A origem devolveu HTML, JSON/texto de erro ou bytes incompatíveis com a extensão solicitada. Nenhuma resposta de erro foi salva como arquivo.'
             : rateLimited
-              ? 'O servidor de mídia limitou temporariamente os downloads. Aguarde um pouco e tente novamente.'
+              ? 'A Pawchive recusou temporariamente a transferência. Os downloads agora respeitam o limite de uma requisição por segundo e até cinco transferências simultâneas; aguarde um pouco antes de tentar novamente.'
               : `Arquivo original indisponível nos servidores de mídia (HTTP ${lastStatus}).`,
         });
         return;
@@ -1025,11 +1145,26 @@ export function createApiApp() {
           }
         }
       })());
-      nodeStream.on('error', () => res.destroy());
+      const releaseOnce = () => {
+        releaseTransfer?.();
+        releaseTransfer = null;
+      };
+      nodeStream.once('end', releaseOnce);
+      nodeStream.once('close', releaseOnce);
+      nodeStream.once('error', () => {
+        releaseOnce();
+        res.destroy();
+      });
+      res.once('close', () => {
+        if (!res.writableEnded) nodeStream.destroy();
+      });
+      streaming = true;
       nodeStream.pipe(res);
     } catch {
       if (!res.headersSent) res.status(502).json({ error: 'Falha ao transferir arquivo do servidor.' });
       else res.destroy();
+    } finally {
+      if (!streaming) releaseTransfer?.();
     }
   });
 

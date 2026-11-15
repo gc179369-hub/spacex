@@ -6,6 +6,7 @@ import { NativeVideoPlayer } from './NativeVideoPlayer';
 export interface PreviewTarget {
   name: string;
   url: string;
+  downloadCandidates?: string[];
   kind: 'image' | 'video' | 'audio';
 }
 
@@ -20,7 +21,7 @@ export function FilePreviewModal({ target, onClose }: FilePreviewModalProps) {
   if (!target) return null;
 
   const proxiedMedia = buildMediaProxyUrl(target.url);
-  const downloadUrl = buildDownloadProxyUrl(target.url, target.name);
+  const downloadUrl = buildDownloadProxyUrl(target.downloadCandidates?.length ? target.downloadCandidates : target.url, target.name);
 
   return (
     <div

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   Archive,
   Download,
@@ -14,11 +14,10 @@ import {
 } from 'lucide-react';
 import type { ExternalAuthorizedLink, PawchiveFile } from '../types/spacex';
 import {
+  buildFileDownloadSources,
   buildDirectFileUrl,
   buildDownloadProxyUrl,
   classifyFile,
-  formatBytes,
-  pawchiveService,
 } from '../services/pawchiveService';
 import type { PreviewTarget } from './FilePreviewModal';
 
@@ -34,6 +33,7 @@ interface NormalizedFileEntry {
   name: string;
   filePath: string;
   directUrl: string;
+  downloadCandidates: string[];
   downloadUrl: string;
   index: number;
 }
@@ -63,8 +63,6 @@ export function FileDownloadList({
   externalLinks = [],
   onPreview,
 }: FileDownloadListProps) {
-  const [sizes, setSizes] = useState<Record<string, number | null>>({});
-
   const entries = useMemo(() => {
     const raw: PawchiveFile[] = [];
     const seenUrls = new Set<string>();
@@ -82,7 +80,8 @@ export function FileDownloadList({
 
     const list: NormalizedFileEntry[] = [];
     raw.forEach((f, idx) => {
-      const directUrl = buildDirectFileUrl(f);
+      const downloadCandidates = buildFileDownloadSources(f);
+      const directUrl = downloadCandidates[0];
       if (!directUrl) return;
       const fallbackName = f.path?.split('/').pop() || directUrl.split('?')[0].split('/').pop() || `arquivo-${idx + 1}`;
       const name = f.name?.trim() || fallbackName;
@@ -91,33 +90,13 @@ export function FileDownloadList({
         name,
         filePath: f.path || directUrl.split('?')[0] || '',
         directUrl,
-        downloadUrl: buildDownloadProxyUrl(directUrl, name),
+        downloadCandidates,
+        downloadUrl: buildDownloadProxyUrl(downloadCandidates, name),
         index: idx,
       });
     });
     return list;
   }, [primaryFile, attachments]);
-
-  useEffect(() => {
-    let active = true;
-    const targets = entries.slice(0, 20);
-    targets.forEach((entry) => {
-      if (sizes[entry.directUrl] !== undefined) return;
-      pawchiveService
-        .getFileMeta(entry.directUrl)
-        .then((meta) => {
-          if (!active) return;
-          setSizes((prev) => ({ ...prev, [entry.directUrl]: meta.contentLength }));
-        })
-        .catch(() => {
-          if (!active) return;
-          setSizes((prev) => ({ ...prev, [entry.directUrl]: null }));
-        });
-    });
-    return () => {
-      active = false;
-    };
-  }, [entries]);
 
   if (entries.length === 0 && externalLinks.length === 0) {
     return (
@@ -142,7 +121,6 @@ export function FileDownloadList({
             {entries.map((entry) => {
               const cls = classifyFile(entry.name, entry.index, entry.filePath);
               const Icon = getKindIcon(cls.kind);
-              const sizeVal = sizes[entry.directUrl];
               const canPreview = cls.kind === 'image' || cls.kind === 'video' || cls.kind === 'audio';
 
               return (
@@ -162,7 +140,7 @@ export function FileDownloadList({
                         <span>{cls.typeLabel}</span>
                         <span aria-hidden="true">·</span>
                         <span className="font-mono-tabular">
-                          {sizeVal === undefined ? 'Verificando tamanho...' : formatBytes(sizeVal)}
+                          Tamanho não informado pela API
                         </span>
                       </p>
                     </div>
@@ -185,6 +163,7 @@ export function FileDownloadList({
                           onPreview({
                             name: entry.name,
                             url: entry.directUrl,
+                            downloadCandidates: entry.downloadCandidates,
                             kind: cls.kind as 'image' | 'video' | 'audio',
                           })
                         }
@@ -206,7 +185,7 @@ export function FileDownloadList({
         <div className="space-y-2.5 pt-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span className="font-medium text-slate-200">
-              Links externos autorizados ({externalLinks.length})
+              Links externos e downloads ({externalLinks.length})
             </span>
             <span>Abertura segura em nova guia</span>
           </div>

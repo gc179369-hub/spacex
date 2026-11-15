@@ -30,28 +30,35 @@ function formatDuration(seconds: number): string {
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
 
-function getTimelineDuration(video: HTMLVideoElement): number {
-  let duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+function getMediaDuration(video: HTMLVideoElement): number {
+  return Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+}
+
+function getPlaybackLimit(video: HTMLVideoElement): number {
+  const duration = getMediaDuration(video);
+  if (duration > 0) return duration;
   try {
     if (video.seekable.length > 0) {
       const seekableEnd = video.seekable.end(video.seekable.length - 1);
-      if (Number.isFinite(seekableEnd)) duration = Math.max(duration, seekableEnd);
+      if (Number.isFinite(seekableEnd) && seekableEnd > 0) return seekableEnd;
     }
   } catch {
     // Some browsers do not expose seekable ranges until media metadata is ready.
   }
-  if (Number.isFinite(video.currentTime)) duration = Math.max(duration, video.currentTime);
-  return duration;
+  return 0;
 }
 
 export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const singleClickTimer = useRef<number | null>(null);
+  const isScrubbingRef = useRef(false);
+  const pendingSeekRef = useRef<number | null>(null);
 
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [scrubTime, setScrubTime] = useState<number | null>(null);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [playbackRate, setPlaybackRate] = useState(1);
@@ -73,10 +80,47 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
   const syncTimelineDuration = () => {
     const video = videoRef.current;
     if (!video) return;
-    const nextDuration = getTimelineDuration(video);
+    const nextDuration = getMediaDuration(video);
     if (nextDuration > 0) {
       setDuration((previous) => (Math.abs(previous - nextDuration) < 0.1 ? previous : nextDuration));
     }
+  };
+
+  const seekTo = (requestedTime: number) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(requestedTime)) return;
+    const limit = getPlaybackLimit(video) || duration;
+    const target = limit > 0 ? Math.max(0, Math.min(limit, requestedTime)) : Math.max(0, requestedTime);
+    try {
+      video.currentTime = target;
+      setCurrentTime(target);
+    } catch {
+      // Ignore seeks that the active media source cannot currently satisfy.
+    }
+  };
+
+  const beginScrub = () => {
+    if (isScrubbingRef.current) return;
+    isScrubbingRef.current = true;
+    pendingSeekRef.current = currentTime;
+    setScrubTime(currentTime);
+  };
+
+  const previewScrub = (requestedTime: number) => {
+    const video = videoRef.current;
+    const limit = video ? getPlaybackLimit(video) || duration : duration;
+    const target = limit > 0 ? Math.max(0, Math.min(limit, requestedTime)) : Math.max(0, requestedTime);
+    pendingSeekRef.current = target;
+    setScrubTime(target);
+  };
+
+  const commitScrub = () => {
+    const target = pendingSeekRef.current;
+    const wasScrubbing = isScrubbingRef.current;
+    isScrubbingRef.current = false;
+    pendingSeekRef.current = null;
+    setScrubTime(null);
+    if (wasScrubbing && target !== null) seekTo(target);
   };
 
   const flashFeedback = (label: string, side: 'left' | 'right' | 'center') => {
@@ -99,10 +143,9 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
   const seekBy = (deltaSeconds: number) => {
     const video = videoRef.current;
     if (!video) return;
-    const max = getTimelineDuration(video) || Infinity;
-    const next = Math.max(0, Math.min(max, video.currentTime + deltaSeconds));
-    video.currentTime = next;
-    setCurrentTime(next);
+    const max = getPlaybackLimit(video) || duration;
+    const next = Math.max(0, Math.min(max > 0 ? max : Infinity, video.currentTime + deltaSeconds));
+    seekTo(next);
     const label = deltaSeconds > 0 ? `+${deltaSeconds}s` : `${deltaSeconds}s`;
     flashFeedback(label, deltaSeconds > 0 ? 'right' : 'left');
   };
@@ -185,6 +228,7 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
   }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.target instanceof HTMLInputElement && e.target.type === 'range') return;
     if (e.key === ' ' || e.key.toLowerCase() === 'k') {
       e.preventDefault();
       togglePlay();
@@ -209,7 +253,8 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
     }
   };
 
-  const progressPct = duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0;
+  const displayedTime = scrubTime ?? currentTime;
+  const progressPct = duration > 0 ? Math.min(100, (displayedTime / duration) * 100) : 0;
 
   return (
     <div
@@ -229,8 +274,9 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onTimeUpdate={() => {
-            if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
-            syncTimelineDuration();
+            if (videoRef.current && !isScrubbingRef.current) {
+              setCurrentTime(videoRef.current.currentTime);
+            }
           }}
           onLoadedMetadata={() => {
             if (videoRef.current) setCurrentTime(videoRef.current.currentTime || 0);
@@ -240,9 +286,19 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
           onLoadedData={syncTimelineDuration}
           onCanPlay={syncTimelineDuration}
           onProgress={syncTimelineDuration}
+          onSeeked={() => {
+            if (videoRef.current && !isScrubbingRef.current) {
+              setCurrentTime(videoRef.current.currentTime);
+            }
+          }}
+          onEmptied={() => {
+            setDuration(0);
+            setCurrentTime(0);
+            setScrubTime(null);
+          }}
           onEnded={() => {
             setPlaying(false);
-            syncTimelineDuration();
+            if (videoRef.current) setCurrentTime(videoRef.current.currentTime);
           }}
           onError={() => {
             if (!useProxyFallback && activeSrc !== buildMediaProxyUrl(url)) {
@@ -312,20 +368,37 @@ export function NativeVideoPlayer({ url, title, posterUrl }: NativeVideoPlayerPr
         {/* Scrub Seek Slider */}
         <div className="mb-2 flex items-center gap-3">
           <span className="font-mono-tabular text-[11px] text-white/90">
-            {formatDuration(currentTime)}
+            {formatDuration(displayedTime)}
           </span>
           <div className="relative flex flex-1 items-center">
             <input
               type="range"
               min={0}
-              max={duration || 100}
+              max={duration || 1}
               step={0.1}
-              value={currentTime}
+              value={scrubTime ?? currentTime}
+              disabled={duration <= 0}
               aria-label="Linha do tempo do vídeo"
+              onPointerDown={beginScrub}
+              onPointerUp={commitScrub}
+              onPointerCancel={commitScrub}
+              onKeyDown={(e) => {
+                if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+                  e.stopPropagation();
+                  beginScrub();
+                }
+              }}
+              onKeyUp={(e) => {
+                if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+                  e.stopPropagation();
+                  commitScrub();
+                }
+              }}
+              onBlur={commitScrub}
               onChange={(e) => {
                 const next = Number(e.target.value);
-                if (videoRef.current) videoRef.current.currentTime = next;
-                setCurrentTime(next);
+                if (isScrubbingRef.current) previewScrub(next);
+                else seekTo(next);
               }}
               className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-sky-400"
               style={{

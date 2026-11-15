@@ -108,24 +108,30 @@ export function buildCreatorBannerUrl(service: string, id: string): string {
   return buildMediaProxyUrl(`https://pawchive.pw/banners/${encodeURIComponent(service)}/${encodeURIComponent(id)}`);
 }
 
-export function buildDirectFileUrl(file?: PawchiveFile | null): string | null {
-  if (!file) return null;
-  if (file.preview_only) return null;
+export function buildFileDownloadSources(file?: PawchiveFile | null): string[] {
+  if (!file || file.preview_only) return [];
 
   const expiry = file.temp_expires ? Date.parse(file.temp_expires) : Number.NaN;
   const temporaryUrlIsFresh = !Number.isFinite(expiry) || expiry > Date.now() + 30_000;
-  if (temporaryUrlIsFresh && file.temp_download_url && file.temp_download_url.startsWith('https://')) {
-    return file.temp_download_url;
-  }
+  const sources: string[] = [];
+  const addSource = (url?: string | null) => {
+    if (url?.startsWith('https://') && !sources.includes(url)) sources.push(url);
+  };
+
+  if (temporaryUrlIsFresh) addSource(file.temp_download_url);
   if (file.path) {
     const cleanPath = file.path.startsWith('/') ? file.path : `/${file.path}`;
     const server = file.server && file.server.startsWith('https://') ? file.server.replace(/\/$/, '') : 'https://n1.pawchive.pw';
-    return `${server}/data${cleanPath}`;
+    addSource(`${server}/data${cleanPath}`);
   }
-  if (temporaryUrlIsFresh && file.temp_url && file.temp_url.startsWith('https://') && !file.temp_url.includes('.m3u8')) {
-    return file.temp_url;
+  if (temporaryUrlIsFresh && file.temp_url && !file.temp_url.includes('.m3u8')) {
+    addSource(file.temp_url);
   }
-  return null;
+  return sources.slice(0, 6);
+}
+
+export function buildDirectFileUrl(file?: PawchiveFile | null): string | null {
+  return buildFileDownloadSources(file)[0] || null;
 }
 
 export function buildThumbnailUrl(file?: PawchiveFile | null): string | null {
@@ -141,8 +147,11 @@ export function buildThumbnailUrl(file?: PawchiveFile | null): string | null {
   return buildMediaProxyUrl(`https://img.pawchive.pw/thumbnail/data${cleanPath}`);
 }
 
-export function buildDownloadProxyUrl(fileUrl: string, fileName: string): string {
-  return `/api/download?url=${encodeURIComponent(fileUrl)}&filename=${encodeURIComponent(fileName)}`;
+export function buildDownloadProxyUrl(fileUrl: string | string[], fileName: string): string {
+  const sources = (Array.isArray(fileUrl) ? fileUrl : [fileUrl]).filter(Boolean).slice(0, 6);
+  const params = new URLSearchParams({ url: sources[0] || '', filename: fileName });
+  for (const candidate of sources.slice(1)) params.append('candidate', candidate);
+  return `/api/download?${params.toString()}`;
 }
 
 // File classification for real individual download buttons
@@ -243,24 +252,27 @@ export function extractExternalAuthorizedLinks(
 
   const classifyUrl = (rawUrl: string, textLabel?: string) => {
     try {
-      const parsed = new URL(rawUrl);
+      const candidate = rawUrl.trim();
+      if (!/^(?:https?:\/\/|\/\/)/i.test(candidate)) return;
+      const parsed = new URL(candidate.startsWith('//') ? `https:${candidate}` : candidate);
       if (!['http:', 'https:'].includes(parsed.protocol)) return;
       if (seen.has(parsed.href)) return;
       seen.add(parsed.href);
 
       const host = parsed.hostname.toLowerCase();
+      const matchesHost = (domain: string) => host === domain || host.endsWith(`.${domain}`);
       let provider: ExternalAuthorizedLink['provider'] = 'Link Externo';
-      if (host.includes('drive.google.com') || host.includes('docs.google.com')) {
+      if (matchesHost('drive.google.com') || matchesHost('docs.google.com')) {
         provider = 'Google Drive';
-      } else if (host.includes('mega.nz') || host.includes('mega.co.nz')) {
+      } else if (matchesHost('mega.nz') || matchesHost('mega.co.nz')) {
         provider = 'Mega';
-      } else if (host.includes('dropbox.com')) {
+      } else if (matchesHost('dropbox.com') || matchesHost('dropboxusercontent.com')) {
         provider = 'Dropbox';
-      } else if (host.includes('fantia.jp')) {
+      } else if (matchesHost('fantia.jp')) {
         provider = 'Fantia';
-      } else if (host.includes('pixiv.net') || host.includes('fanbox.cc')) {
+      } else if (matchesHost('pixiv.net') || matchesHost('fanbox.cc')) {
         provider = 'Pixiv';
-      } else if (host.includes('patreon.com')) {
+      } else if (matchesHost('patreon.com')) {
         provider = 'Patreon';
       }
 
@@ -284,10 +296,29 @@ export function extractExternalAuthorizedLinks(
 
   if (html) {
     const doc = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('script,style').forEach((node) => node.remove());
     doc.querySelectorAll('a[href]').forEach((anchor) => {
       const href = anchor.getAttribute('href');
       if (href) classifyUrl(href, anchor.textContent || undefined);
     });
+
+    const text = doc.body.textContent || html;
+    const markdownLink = /(^|[^!])\[([^\]]{1,160})\]\((https?:\/\/[^)\s]+)\)/gim;
+    for (const match of text.matchAll(markdownLink)) {
+      classifyUrl(match[3], match[2]);
+    }
+
+    const plainUrl = /(?:https?:\/\/|\/\/)[^\s<>"'`]+/gi;
+    for (const match of text.matchAll(plainUrl)) {
+      let candidate = match[0].replace(/[.,!?;:]+$/g, '');
+      while (candidate.endsWith(')')) {
+        const closingParentheses = candidate.match(/\)/g)?.length || 0;
+        const openingParentheses = candidate.match(/\(/g)?.length || 0;
+        if (closingParentheses <= openingParentheses) break;
+        candidate = candidate.slice(0, -1);
+      }
+      classifyUrl(candidate);
+    }
   }
 
   return links;

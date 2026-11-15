@@ -21,6 +21,7 @@ import type {
   PawchiveRevision,
 } from '../types/spacex';
 import {
+  buildFileDownloadSources,
   buildDirectFileUrl,
   buildMediaProxyUrl,
   buildThumbnailUrl,
@@ -416,6 +417,7 @@ export function PostDetailModal({
                       setPreviewTarget({
                         name: activePost.file?.name || 'capa',
                         url: directCoverUrl,
+                        downloadCandidates: buildFileDownloadSources(activePost.file),
                         kind: 'image',
                       })
                     }
@@ -448,6 +450,7 @@ export function PostDetailModal({
                               setPreviewTarget({
                                 name: img.name || `imagem-${i + 1}`,
                                 url: full,
+                                downloadCandidates: buildFileDownloadSources(img),
                                 kind: 'image',
                               })
                             }
