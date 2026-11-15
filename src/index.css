@@ -1,0 +1,201 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Outfit', system-ui, -apple-system, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    background-color: #020203;
+    color: #ffffff;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: #020203;
+    color: #ffffff;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  .font-mono-tabular {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Deep Black Piano + Frosted Liquid Glass App Surfaces */
+.piano-canvas {
+  background-color: #020203;
+  background-image:
+    radial-gradient(ellipse 90% 45% at 50% -10%, rgba(255, 255, 255, 0.055), transparent 65%),
+    radial-gradient(ellipse 55% 35% at 85% 5%, rgba(56, 189, 248, 0.045), transparent 55%);
+}
+
+.liquid-glass {
+  background: linear-gradient(
+    155deg,
+    rgba(22, 24, 30, 0.68) 0%,
+    rgba(8, 9, 12, 0.84) 100%
+  );
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow:
+    0 22px 55px rgba(0, 0, 0, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.liquid-glass-subtle {
+  background: rgba(14, 15, 20, 0.62);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.085);
+}
+
+.liquid-glass-interactive {
+  background: linear-gradient(
+    160deg,
+    rgba(20, 22, 28, 0.7) 0%,
+    rgba(7, 8, 11, 0.88) 100%
+  );
+  backdrop-filter: blur(24px) saturate(165%);
+  -webkit-backdrop-filter: blur(24px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.095);
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.58),
+    inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-glass-interactive:hover {
+  transform: translateY(-3px) scale(1.012);
+  border-color: rgba(255, 255, 255, 0.24);
+  box-shadow:
+    0 24px 52px rgba(0, 0, 0, 0.78),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+/* Motion Blur Entrance Animation */
+@keyframes spacex-motion-blur-in {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+    filter: blur(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+.motion-blur-in {
+  animation: spacex-motion-blur-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Horizontal Streaming Rail Scrollbar Hidden */
+.rail-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rail-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Shimmer Skeleton */
+@keyframes spacex-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton-glass {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.085) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: spacex-shimmer 1.5s infinite linear;
+}
+
+/* Safe Prose Formatting for Sanitized API HTML */
+.spacex-prose {
+  color: #f1f5f9;
+  font-size: 0.9375rem;
+  line-height: 1.68;
+  overflow-wrap: anywhere;
+}
+
+.spacex-prose p {
+  margin-bottom: 0.75rem;
+}
+
+.spacex-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.spacex-prose a {
+  color: #7dd3fc;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.spacex-prose a:hover {
+  color: #ffffff;
+}
+
+.spacex-prose ul,
+.spacex-prose ol {
+  margin: 0.5rem 0 0.75rem 1.25rem;
+}
+
+.spacex-prose ul {
+  list-style-type: disc;
+}
+
+.spacex-prose ol {
+  list-style-type: decimal;
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: #020203;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liquid-glass-interactive,
+  .skeleton-glass,
+  .motion-blur-in {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}

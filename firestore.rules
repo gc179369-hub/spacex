@@ -1,0 +1,143 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: deny all access by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Hardened Primitive Helpers
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Validation Blueprints
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.uid == userId
+        && data.displayName is string && data.displayName.size() <= 120
+        && data.email is string && data.email.size() <= 200
+        && data.photoURL is string && data.photoURL.size() <= 500
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFavoriteCreator(data) {
+      return data.keys().hasAll(['uid', 'id', 'name', 'public_id', 'service', 'indexed', 'updated', 'favorited', 'ever_imported', 'savedAt'])
+        && data.keys().hasOnly(['uid', 'id', 'name', 'public_id', 'service', 'indexed', 'updated', 'favorited', 'ever_imported', 'savedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.name is string && data.name.size() <= 200
+        && data.public_id is string && data.public_id.size() <= 200
+        && data['service'] is string && data['service'].size() >= 1 && data['service'].size() <= 40
+        && data.indexed is number
+        && data.updated is number
+        && data.favorited is number
+        && data.ever_imported is bool
+        && data.savedAt is timestamp;
+    }
+
+    function isValidFavoritePost(data) {
+      return data.keys().hasAll([
+        'uid', 'id', 'user', 'service', 'title', 'substring',
+        'published', 'creator_name', 'file_name', 'file_path',
+        'file_server', 'attachments_count', 'savedAt'
+      ])
+        && data.keys().hasOnly([
+          'uid', 'id', 'user', 'service', 'title', 'substring',
+          'published', 'creator_name', 'file_name', 'file_path',
+          'file_server', 'attachments_count', 'savedAt'
+        ])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.id is string && data.id.size() >= 1 && data.id.size() <= 128
+        && data.user is string && data.user.size() >= 1 && data.user.size() <= 128
+        && data['service'] is string && data['service'].size() >= 1 && data['service'].size() <= 40
+        && data.title is string && data.title.size() <= 400
+        && data.substring is string && data.substring.size() <= 600
+        && data.published is string && data.published.size() <= 64
+        && data.creator_name is string && data.creator_name.size() <= 200
+        && data.file_name is string && data.file_name.size() <= 300
+        && data.file_path is string && data.file_path.size() <= 500
+        && data.file_server is string && data.file_server.size() <= 200
+        && data.attachments_count is number && data.attachments_count >= 0 && data.attachments_count <= 500
+        && data.savedAt is timestamp;
+    }
+
+    // Private User Profile & Subcollections
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId)
+        && isOwner(userId)
+        && isValidUserProfile(incoming(), userId)
+        && incoming().uid == existing().uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'email', 'photoURL', 'updatedAt']);
+      allow delete: if isValidId(userId) && isOwner(userId);
+
+      match /favoriteCreators/{favId} {
+        allow get: if isValidId(userId) && isValidId(favId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(favId)
+          && isOwner(userId)
+          && isValidFavoriteCreator(incoming())
+          && incoming().savedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(favId)
+          && isOwner(userId)
+          && isValidFavoriteCreator(incoming())
+          && incoming().uid == existing().uid
+          && incoming().savedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'public_id', 'updated', 'favorited', 'ever_imported', 'savedAt']);
+        allow delete: if isValidId(userId) && isValidId(favId) && isOwner(userId);
+      }
+
+      match /favoritePosts/{favId} {
+        allow get: if isValidId(userId) && isValidId(favId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.uid == request.auth.uid;
+        allow create: if isValidId(userId) && isValidId(favId)
+          && isOwner(userId)
+          && isValidFavoritePost(incoming())
+          && incoming().savedAt == request.time;
+        allow update: if isValidId(userId) && isValidId(favId)
+          && isOwner(userId)
+          && isValidFavoritePost(incoming())
+          && incoming().uid == existing().uid
+          && incoming().savedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'substring', 'creator_name', 'attachments_count', 'savedAt']);
+        allow delete: if isValidId(userId) && isValidId(favId) && isOwner(userId);
+      }
+    }
+  }
+}

@@ -1,0 +1,295 @@
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowUp } from 'lucide-react';
+import { ToastProvider } from './hooks/useToast';
+import { useLocalStorage } from './hooks/useLocalStorage';
+import { FirebaseAuthProvider, useFirebaseAuth } from './contexts/FirebaseAuthContext';
+import type {
+  AuthSessionState,
+  NavSection,
+  PawchivePostSummary,
+  UserPreferences,
+} from './types/spacex';
+import { pawchiveService } from './services/pawchiveService';
+import { Navbar } from './components/Navbar';
+import { HomeView } from './components/HomeView';
+import { ExploreView } from './components/ExploreView';
+import { CreatorsDirectory } from './components/CreatorsDirectory';
+import { CreatorProfileView } from './components/CreatorProfileView';
+import { PublicationsFeed } from './components/PublicationsFeed';
+import { FavoritesView } from './components/FavoritesView';
+import { PostDetailModal } from './components/PostDetailModal';
+import { ImporterModal } from './components/ImporterModal';
+import { SettingsModal } from './components/SettingsModal';
+import { GoogleLoginPromptModal } from './components/GoogleLoginPromptModal';
+
+const DEFAULT_PREFERENCES: UserPreferences = {
+  blurSensitiveThumbnails: false,
+  defaultCreatorSort: 'favorited',
+  defaultPageSize: 24,
+  compactCards: false,
+};
+
+function SpaceXShell() {
+  const {
+    user: googleUser,
+    authReady,
+    signingIn,
+    favoriteCreators,
+    favoritePosts,
+    signInWithGoogle,
+    logoutGoogle,
+    isCreatorFavorite,
+    isPostFavorite,
+    toggleCreatorFavorite,
+    togglePostFavorite,
+    clearAllCloudFavorites,
+  } = useFirebaseAuth();
+
+  const [section, setSection] = useState<NavSection>('inicio');
+  const [selectedCreator, setSelectedCreator] = useState<{ service: string; id: string } | null>(null);
+  const [selectedPost, setSelectedPost] = useState<PawchivePostSummary | null>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  const [importerOpen, setImporterOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  const [exploreInit, setExploreInit] = useState<{ query: string; mode: 'creators' | 'posts' | 'hash'; key: number }>({
+    query: '',
+    mode: 'creators',
+    key: 0,
+  });
+
+  const [refreshSignal, setRefreshSignal] = useState(0);
+  const [auth, setAuth] = useState<AuthSessionState>({ authenticated: false });
+
+  const [preferences, setPreferences] = useLocalStorage<UserPreferences>('spacex_preferences', DEFAULT_PREFERENCES);
+  const [searchHistory, setSearchHistory] = useLocalStorage<string[]>('spacex_search_history', []);
+
+  useEffect(() => {
+    pawchiveService
+      .getAuthSession()
+      .then((res) => setAuth(res))
+      .catch(() => setAuth({ authenticated: false }));
+  }, []);
+
+  useEffect(() => {
+    const onScroll = () => {
+      setShowScrollTop(window.scrollY > 650);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const recordSearch = useCallback(
+    (term: string) => {
+      const clean = term.trim();
+      if (!clean) return;
+      setSearchHistory((prev) => [clean, ...prev.filter((t) => t !== clean)].slice(0, 12));
+    },
+    [setSearchHistory]
+  );
+
+  const handleNavigate = (next: NavSection) => {
+    setSelectedCreator(null);
+    setSection(next);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleOpenCreator = (service: string, id: string) => {
+    setSelectedCreator({ service, id });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleQuickSearch = (query: string, mode: 'creators' | 'posts') => {
+    recordSearch(query);
+    setSelectedCreator(null);
+    setExploreInit((prev) => ({ query, mode, key: prev.key + 1 }));
+    setSection('explorar');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const favoritesCount = googleUser ? favoriteCreators.length + favoritePosts.length : 0;
+
+  return (
+    <div className="piano-canvas flex min-h-screen flex-col text-white">
+      <Navbar
+        activeSection={section}
+        onNavigate={handleNavigate}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenImporter={() => setImporterOpen(true)}
+        favoritesCount={favoritesCount}
+        googleUser={googleUser}
+      />
+
+      <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        {selectedCreator ? (
+          <CreatorProfileView
+            service={selectedCreator.service}
+            creatorId={selectedCreator.id}
+            blurThumbnails={preferences.blurSensitiveThumbnails}
+            isCreatorFavorite={isCreatorFavorite}
+            isPostFavorite={isPostFavorite}
+            onToggleCreatorFavorite={toggleCreatorFavorite}
+            onTogglePostFavorite={togglePostFavorite}
+            onOpenCreator={handleOpenCreator}
+            onOpenPost={(p) => setSelectedPost(p)}
+            onBack={() => setSelectedCreator(null)}
+          />
+        ) : (
+          <>
+            {section === 'inicio' && (
+              <HomeView
+                blurThumbnails={preferences.blurSensitiveThumbnails}
+                refreshSignal={refreshSignal}
+                isCreatorFavorite={isCreatorFavorite}
+                isPostFavorite={isPostFavorite}
+                onToggleCreatorFavorite={toggleCreatorFavorite}
+                onTogglePostFavorite={togglePostFavorite}
+                onOpenCreator={handleOpenCreator}
+                onOpenPost={(p) => setSelectedPost(p)}
+                onQuickSearch={handleQuickSearch}
+                onNavigate={handleNavigate}
+                onOpenImporter={() => setImporterOpen(true)}
+              />
+            )}
+
+            {section === 'explorar' && (
+              <ExploreView
+                key={exploreInit.key}
+                initialQuery={exploreInit.query}
+                initialMode={exploreInit.mode}
+                blurThumbnails={preferences.blurSensitiveThumbnails}
+                searchHistory={searchHistory}
+                onRecordSearch={recordSearch}
+                onClearHistory={() => setSearchHistory([])}
+                isCreatorFavorite={isCreatorFavorite}
+                isPostFavorite={isPostFavorite}
+                onToggleCreatorFavorite={toggleCreatorFavorite}
+                onTogglePostFavorite={togglePostFavorite}
+                onOpenCreator={handleOpenCreator}
+                onOpenPost={(p) => setSelectedPost(p)}
+              />
+            )}
+
+            {section === 'criadores' && (
+              <CreatorsDirectory
+                key={refreshSignal}
+                defaultSort={preferences.defaultCreatorSort}
+                defaultPageSize={preferences.defaultPageSize}
+                isFavorite={isCreatorFavorite}
+                onToggleFavorite={toggleCreatorFavorite}
+                onOpenProfile={handleOpenCreator}
+                onRecordSearch={recordSearch}
+              />
+            )}
+
+            {section === 'publicacoes' && (
+              <PublicationsFeed
+                key={refreshSignal}
+                blurThumbnails={preferences.blurSensitiveThumbnails}
+                isPostFavorite={isPostFavorite}
+                onTogglePostFavorite={togglePostFavorite}
+                onOpenPost={(p) => setSelectedPost(p)}
+                onOpenCreator={handleOpenCreator}
+                onRecordSearch={recordSearch}
+              />
+            )}
+
+            {section === 'favoritos' && (
+              <FavoritesView
+                favoriteCreators={favoriteCreators}
+                favoritePosts={favoritePosts}
+                blurThumbnails={preferences.blurSensitiveThumbnails}
+                googleUser={googleUser}
+                authReady={authReady}
+                signingIn={signingIn}
+                onLoginWithGoogle={signInWithGoogle}
+                onLogoutGoogle={logoutGoogle}
+                onToggleCreatorFavorite={toggleCreatorFavorite}
+                onTogglePostFavorite={togglePostFavorite}
+                onOpenCreator={handleOpenCreator}
+                onOpenPost={(p) => setSelectedPost(p)}
+                onGoExplore={() => handleNavigate('explorar')}
+              />
+            )}
+          </>
+        )}
+      </main>
+
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="Voltar ao topo"
+          className="liquid-glass fixed bottom-5 left-5 z-40 inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition-transform hover:scale-105"
+        >
+          <ArrowUp className="h-4 w-4" />
+        </button>
+      )}
+
+      <footer className="border-t border-white/[0.08] bg-black/85">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-3 px-4 py-6 text-xs text-slate-300 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+          <p>© {new Date().getFullYear()} SpaceX — Plataforma de Criadores e Publicações.</p>
+          <div className="flex flex-wrap items-center gap-4">
+            <button type="button" onClick={() => handleNavigate('criadores')} className="hover:text-white">
+              Criadores
+            </button>
+            <button type="button" onClick={() => handleNavigate('publicacoes')} className="hover:text-white">
+              Publicações
+            </button>
+            <button type="button" onClick={() => setImporterOpen(true)} className="hover:text-white">
+              Importação Autorizada
+            </button>
+            <button type="button" onClick={() => setSettingsOpen(true)} className="hover:text-white">
+              Configurações
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      <PostDetailModal
+        post={selectedPost}
+        blurThumbnails={preferences.blurSensitiveThumbnails}
+        isFavorite={selectedPost ? isPostFavorite(selectedPost.service, selectedPost.user, selectedPost.id) : false}
+        isAuthenticated={auth.authenticated}
+        onToggleFavorite={togglePostFavorite}
+        onOpenCreator={handleOpenCreator}
+        onClose={() => setSelectedPost(null)}
+      />
+
+      <ImporterModal
+        open={importerOpen}
+        onClose={() => setImporterOpen(false)}
+        onImported={() => setRefreshSignal((s) => s + 1)}
+      />
+
+      <SettingsModal
+        open={settingsOpen}
+        auth={auth}
+        googleUser={googleUser}
+        googleSigningIn={signingIn}
+        preferences={preferences}
+        onUpdatePreferences={setPreferences}
+        onAuthChanged={setAuth}
+        onLoginWithGoogle={signInWithGoogle}
+        onLogoutGoogle={logoutGoogle}
+        onClearHistory={() => setSearchHistory([])}
+        onClearFavorites={clearAllCloudFavorites}
+        onRefreshAll={() => setRefreshSignal((s) => s + 1)}
+        onClose={() => setSettingsOpen(false)}
+      />
+
+      <GoogleLoginPromptModal />
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <FirebaseAuthProvider>
+        <SpaceXShell />
+      </FirebaseAuthProvider>
+    </ToastProvider>
+  );
+}

@@ -1,0 +1,6 @@
+{
+  "name": "SpaceX",
+  "description": "Plataforma web SpaceX com identidade Black Piano e Liquid Glass para descoberta de criadores, publicações, arquivos e importação autorizada.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
