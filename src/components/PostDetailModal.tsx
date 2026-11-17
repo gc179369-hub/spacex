@@ -132,9 +132,9 @@ export function PostDetailModal({
     const seenKeys = new Set<string>();
     const addFile = (f?: PawchiveFile) => {
       if (!f) return;
-      const key = buildDirectFileUrl(f) || f.path || f.temp_url || f.temp_download_url;
-      if (!key || seenKeys.has(key)) return;
-      seenKeys.add(key);
+      const directUrl = buildDirectFileUrl(f);
+      if (!directUrl || seenKeys.has(directUrl)) return;
+      seenKeys.add(directUrl);
       out.push(f);
     };
     addFile(activePost.file);
@@ -457,7 +457,7 @@ export function PostDetailModal({
                             className="aspect-square overflow-hidden rounded-xl border border-white/10 transition-transform hover:scale-[1.03]"
                           >
                             <SmartImage
-                              src={buildMediaProxyUrl(`https://img.pawchive.pw/thumbnail/data${img.path}`)}
+                              src={thumb}
                               alt={img.name || `Imagem ${i + 1}`}
                               blur={blurThumbnails}
                               className="h-full w-full"

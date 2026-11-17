@@ -67,7 +67,7 @@ export function FileDownloadList({
     const raw: PawchiveFile[] = [];
     const seenUrls = new Set<string>();
     const pushFile = (f?: PawchiveFile) => {
-      if (!f || f.preview_only) return;
+      if (!f) return;
       const directUrl = buildDirectFileUrl(f);
       if (!directUrl || seenUrls.has(directUrl)) return;
       seenUrls.add(directUrl);

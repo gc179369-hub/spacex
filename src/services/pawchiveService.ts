@@ -109,7 +109,7 @@ export function buildCreatorBannerUrl(service: string, id: string): string {
 }
 
 export function buildFileDownloadSources(file?: PawchiveFile | null): string[] {
-  if (!file || file.preview_only) return [];
+  if (!file) return [];
 
   const expiry = file.temp_expires ? Date.parse(file.temp_expires) : Number.NaN;
   const temporaryUrlIsFresh = !Number.isFinite(expiry) || expiry > Date.now() + 30_000;
@@ -117,6 +117,13 @@ export function buildFileDownloadSources(file?: PawchiveFile | null): string[] {
   const addSource = (url?: string | null) => {
     if (url?.startsWith('https://') && !sources.includes(url)) sources.push(url);
   };
+
+  if (file.preview_only) {
+    if (temporaryUrlIsFresh && isImageFile(file) && file.temp_url && !file.temp_url.includes('.m3u8')) {
+      addSource(file.temp_url);
+    }
+    return sources.slice(0, 6);
+  }
 
   if (temporaryUrlIsFresh) addSource(file.temp_download_url);
   if (file.path) {
