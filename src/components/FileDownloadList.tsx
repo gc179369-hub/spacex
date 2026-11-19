@@ -187,16 +187,21 @@ export function FileDownloadList({
             <span className="font-medium text-slate-200">
               Links externos e downloads ({externalLinks.length})
             </span>
-            <span>Abertura segura em nova guia</span>
+            <span>
+              {externalLinks.some((link) => Boolean(link.downloadUrl))
+                ? 'Download direto do Drive quando disponível'
+                : 'Abertura segura em nova guia'}
+            </span>
           </div>
 
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             {externalLinks.map((link) => (
               <a
                 key={link.url}
-                href={link.url}
+                href={link.downloadUrl || link.url}
                 target="_blank"
                 rel="noopener noreferrer"
+                aria-label={link.downloadUrl ? `Baixar ${link.label} do Google Drive` : `Abrir ${link.label} em nova guia`}
                 className="flex min-h-[52px] items-center justify-between gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] px-4 py-3 transition-colors hover:border-sky-400/40 hover:bg-white/[0.05]"
               >
                 <div className="flex min-w-0 items-center gap-3">
@@ -208,7 +213,11 @@ export function FileDownloadList({
                     <p className="text-xs text-slate-400">{link.provider}</p>
                   </div>
                 </div>
-                <ExternalLink className="h-4 w-4 shrink-0 text-slate-400" />
+                {link.downloadUrl ? (
+                  <Download className="h-4 w-4 shrink-0 text-slate-300" />
+                ) : (
+                  <ExternalLink className="h-4 w-4 shrink-0 text-slate-400" />
+                )}
               </a>
             ))}
           </div>
