@@ -134,7 +134,6 @@ export interface PawchiveComment {
 
 export interface ExternalAuthorizedLink {
   url: string;
-  downloadUrl?: string;
   label: string;
   provider: 'Google Drive' | 'Mega' | 'Dropbox' | 'Fantia' | 'Pixiv' | 'Patreon' | 'Link Externo';
 }

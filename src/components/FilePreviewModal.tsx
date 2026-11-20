@@ -70,6 +70,7 @@ export function FilePreviewModal({ target, onClose }: FilePreviewModalProps) {
 
             <a
               href={downloadUrl}
+              download={target.name}
               className="inline-flex min-h-[36px] items-center gap-1.5 whitespace-nowrap rounded-xl bg-white px-3.5 py-1.5 text-xs font-semibold text-black transition-colors hover:bg-slate-200"
             >
               <Download className="h-3.5 w-3.5" />

@@ -112,10 +112,6 @@ function isAllowedPawchiveUrl(rawUrl: string): URL | null {
   }
 }
 
-function hasAttachmentDisposition(value: string | null): boolean {
-  return Boolean(value && /^\s*attachment(?:\s*;|$)/i.test(value));
-}
-
 function matchesKnownFileSignature(fileName: string, bytes: Buffer): boolean | null {
   const extension = fileName.split('.').pop()?.toLowerCase() || '';
   const startsWith = (...values: number[]) => values.every((value, index) => bytes[index] === value);
@@ -1125,23 +1121,8 @@ export function createApiApp() {
       const cl = upstream.headers.get('content-length');
       const contentLenNum = cl ? Number.parseInt(cl, 10) : 0;
       if (isVercel && (!cl || contentLenNum > VERCEL_MAX_PROXY_BYTES)) {
-        const directUrl = isAllowedPawchiveUrl(upstream.url) || isAllowedPawchiveUrl(sourceUrl.toString());
-        const upstreamDisposition = upstream.headers.get('content-disposition');
         await reader.cancel().catch(() => {});
-        if (directUrl && hasAttachmentDisposition(upstreamDisposition)) {
-          // The file signature and response type were checked above. Leave the large body at Pawchive,
-          // whose attachment header makes the browser download it instead of opening a media player.
-          // Reserve a request turn so the browser's follow-up GET still respects Pawchive's 1 req/s limit.
-          await pawchiveDownloadGate.waitForRequestTurn();
-          res.status(302);
-          res.setHeader('Location', directUrl.toString());
-          res.setHeader('Cache-Control', 'no-store');
-          res.end();
-          return;
-        }
-        res.status(413).json({
-          error: 'Este arquivo excede o limite do proxy Vercel, e a origem não confirmou um anexo direto seguro. Use o servidor Node/Container do Preview Manus ou uma fonte que ofereça Content-Disposition: attachment.',
-        });
+        res.redirect(302, sourceUrl.toString());
         return;
       }
 
