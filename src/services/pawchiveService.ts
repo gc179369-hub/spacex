@@ -141,6 +141,31 @@ export function buildDirectFileUrl(file?: PawchiveFile | null): string | null {
   return buildFileDownloadSources(file)[0] || null;
 }
 
+/**
+ * Google Drive file-view URLs commonly render a preview page. Convert only
+ * recognizable single-file URLs to Drive's download endpoint; folders and
+ * native Google Docs links keep their original destination.
+ */
+export function buildExternalDownloadUrl(rawUrl: string): string | undefined {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:' || parsed.hostname.toLowerCase() !== 'drive.google.com') return undefined;
+
+    const pathMatch = parsed.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    const fileId = pathMatch?.[1] || parsed.searchParams.get('id') || '';
+    if (!/^[a-zA-Z0-9_-]{10,}$/.test(fileId)) return undefined;
+
+    const direct = new URL('https://drive.google.com/uc');
+    direct.searchParams.set('export', 'download');
+    direct.searchParams.set('id', fileId);
+    const resourceKey = parsed.searchParams.get('resourcekey');
+    if (resourceKey) direct.searchParams.set('resourcekey', resourceKey);
+    return direct.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 export function buildThumbnailUrl(file?: PawchiveFile | null): string | null {
   if (!file) return null;
   if (file.temp_url && file.temp_url.startsWith('https://') && !file.temp_url.includes('.m3u8')) {
@@ -289,6 +314,7 @@ export function extractExternalAuthorizedLinks(
 
       links.push({
         url: parsed.href,
+        downloadUrl: provider === 'Google Drive' ? buildExternalDownloadUrl(parsed.href) : undefined,
         label: cleanLabel,
         provider,
       });

@@ -1122,7 +1122,9 @@ export function createApiApp() {
       const contentLenNum = cl ? Number.parseInt(cl, 10) : 0;
       if (isVercel && (!cl || contentLenNum > VERCEL_MAX_PROXY_BYTES)) {
         await reader.cancel().catch(() => {});
-        res.redirect(302, sourceUrl.toString());
+        res.status(413).json({
+          error: 'Este arquivo excede o limite de transferência direta do deploy Vercel. O redirecionamento para a origem foi bloqueado para evitar abrir um player ou uma página intermediária. Use o servidor Node/Container do preview Manus para transferir arquivos grandes.',
+        });
         return;
       }
 
